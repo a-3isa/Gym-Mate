@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, FAB, useTheme } from 'react-native-paper';
+import { SPACING } from '@utils/constants';
 
 const SessionsScreen = () => {
   const { colors } = useTheme();
@@ -28,18 +29,18 @@ const SessionsScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 24
+    padding: SPACING.lg
   },
   header: {
-    marginBottom: 16
+    marginBottom: SPACING.md
   },
   placeholder: {
-    marginBottom: 24
+    marginBottom: SPACING.lg
   },
   fab: {
     position: 'absolute',
-    right: 16,
-    bottom: 16
+    right: SPACING.md,
+    bottom: SPACING.md
   }
 });
 

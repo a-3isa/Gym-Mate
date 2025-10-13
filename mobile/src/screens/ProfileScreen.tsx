@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Avatar, List, useTheme } from 'react-native-paper';
+import { SPACING } from '@utils/constants';
 
 const ProfileScreen = () => {
   const { colors } = useTheme();
@@ -30,14 +31,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 48,
-    paddingHorizontal: 24
+    paddingVertical: SPACING.xl * 1.5,
+    paddingHorizontal: SPACING.lg
   },
   avatar: {
-    marginBottom: 16
+    marginBottom: SPACING.md
   },
   username: {
-    marginBottom: 24
+    marginBottom: SPACING.lg
   },
   listSection: {
     alignSelf: 'stretch'

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Searchbar, useTheme } from 'react-native-paper';
+import { SPACING } from '@utils/constants';
 
 const ExercisesScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -27,16 +28,16 @@ const ExercisesScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 24
+    padding: SPACING.lg
   },
   header: {
-    marginBottom: 16
+    marginBottom: SPACING.md
   },
   searchbar: {
-    marginBottom: 24
+    marginBottom: SPACING.lg
   },
   placeholder: {
-    marginTop: 8
+    marginTop: SPACING.sm
   }
 });
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Button, useTheme } from 'react-native-paper';
+import { SPACING } from '@utils/constants';
 
 const HomeScreen = () => {
   const { colors } = useTheme();
@@ -25,14 +26,14 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24
+    padding: SPACING.lg
   },
   title: {
-    marginBottom: 12,
+    marginBottom: SPACING.md,
     textAlign: 'center'
   },
   subtitle: {
-    marginBottom: 24,
+    marginBottom: SPACING.lg,
     textAlign: 'center'
   }
 });

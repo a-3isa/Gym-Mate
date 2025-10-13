@@ -16,7 +16,6 @@
       "@types/*": ["types/*"],
       "@utils/*": ["utils/*"],
       "@assets/*": ["assets/*"],
-      "@theme/*": ["theme/*"],
       "@theme": ["theme"]
     }
   },

@@ -3,10 +3,10 @@ import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class HealthService {
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly config: ConfigService) {}
 
   getHeapLimitBytes(): number {
-    const heapLimitMb = this.configService.get<number>('health.heapLimitMb');
-    return (heapLimitMb ?? 0) * 1024 * 1024;
+    const mb = this.config.get<number>('health.heapLimitMb', 150);
+    return mb * 1024 * 1024;
   }
 }
