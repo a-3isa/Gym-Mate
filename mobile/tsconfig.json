@@ -16,7 +16,8 @@
       "@types/*": ["types/*"],
       "@utils/*": ["utils/*"],
       "@assets/*": ["assets/*"],
-      "@theme": ["theme"]
+      "@theme": ["theme"],
+      "@theme/*": ["theme/*"]
     }
   },
   "include": ["src", "App.tsx", "src/types"]

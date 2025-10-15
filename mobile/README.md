@@ -34,7 +34,8 @@ Train together virtually with the Gym-Mate mobile application built using Expo a
 ## Available Scripts
 
 - `npm start` – start the Expo development server
-- `npm run android` – run the app on an Android device/emulator
+- `npm run android` – run the app on an Android device/emulator (custom client build)
+- `npm run android:go` – run the app on Android using Expo Go
 - `npm run ios` – run the app on an iOS simulator (macOS only)
 - `npm run web` – run the app in a web browser
 - `npm run typecheck` – run TypeScript type checking
@@ -114,14 +115,58 @@ At that point, you'll need to use a custom development client:
    npx eas build --profile development --platform android
    ```
 
-## TODO
+## Backlog & Future Tasks
 
-### Authentication Phase: Firebase Native Dependencies
+### 🔥 Firebase Native SDK Integration (Deferred)
 
-The following Firebase native packages need to be added when implementing the Authentication feature:
+**Status**: Deferred until Authentication Phase  
+**Priority**: High (required for production authentication)
+
+#### Packages to Add
+
+The following Firebase native packages are **intentionally omitted** from the current `package.json` and must be added when implementing the Authentication feature:
 
 - `@react-native-firebase/app` – Core Firebase SDK for React Native
 - `@react-native-firebase/auth` – Firebase Authentication module
 - `@react-native-firebase/firestore` – Cloud Firestore database module
 
-**Rationale for deferral**: These packages require native modules that are incompatible with Expo Go. They have been intentionally deferred to maintain Expo Go compatibility during the initial development phase. Once authentication is implemented, the app will require a custom development client (via `expo run:android/ios` or EAS Build).
+#### Rationale for Deferral
+
+These packages require native modules that are **incompatible with Expo Go**. They have been intentionally deferred to maintain Expo Go compatibility during the initial development phase, allowing rapid prototyping and testing without building custom development clients.
+
+#### When to Add These Packages
+
+Add these packages when:
+1. Implementing user authentication (sign-up, login, logout)
+2. Integrating Cloud Firestore for real-time data synchronization
+3. Ready to transition from Expo Go to a custom development client
+
+#### Migration Steps
+
+Once you're ready to add Firebase native SDKs:
+
+1. **Install Firebase packages**:
+   ```bash
+   npm install @react-native-firebase/app @react-native-firebase/auth @react-native-firebase/firestore
+   ```
+
+2. **Build a custom development client**:
+   ```bash
+   # For Android
+   npx expo run:android
+   
+   # For iOS (macOS only)
+   npx expo run:ios
+   ```
+
+3. **Or use EAS Build for development**:
+   ```bash
+   npx eas build --profile development --platform android
+   npx eas build --profile development --platform ios
+   ```
+
+4. **Update Firebase configuration** in `.env` and initialize Firebase in your app.
+
+5. **Test thoroughly** – Expo Go will no longer work; you must use the custom development client.
+
+**⚠️ Important**: After adding these packages, the app will **no longer run in Expo Go**. All developers will need to use a custom development client or EAS development build.

@@ -48,11 +48,12 @@ This is a monorepo containing:
 
 ## Git Hooks
 
-This monorepo uses Husky for Git hooks:
+This monorepo uses Husky for Git hooks located in the repository root:
 
-- **Pre-commit**: Runs linting and formatting on staged files in the backend
-- Hooks are configured in `.husky/` directory
-- Automatically installed when you run `npm install` at the root
+- **Pre-commit**: Runs linting and formatting on staged files in the backend by executing `cd backend && npx lint-staged`
+- Hooks are configured in the root `.husky/` directory
+- The lint-staged configuration lives in `backend/.lintstagedrc.json`
+- Hooks are automatically installed when you run `npm install` at the root
 
 ## Development
 
@@ -60,6 +61,12 @@ Refer to each project's README for specific development instructions:
 
 - [Backend README](./backend/README.md)
 - [Mobile README](./mobile/README.md)
+
+### Mobile Development Strategy
+
+The mobile app is built with **Expo** and currently maintains **Expo Go compatibility** for rapid development. Firebase native SDKs (`@react-native-firebase/app`, `@react-native-firebase/auth`, `@react-native-firebase/firestore`) are intentionally deferred until the Authentication phase to avoid requiring custom development clients during initial development.
+
+**See [Mobile README](./mobile/README.md#backlog--future-tasks)** for detailed information on when and how to add Firebase native packages.
 
 ## Contributing
 
