@@ -179,7 +179,7 @@ export class StorageService {
   ): Promise<{ storagePath: string; downloadUrl: string }> {
     try {
       // Validate MIME type
-      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
       if (!allowedMimeTypes.includes(mimetype)) {
         throw new Error(
           `Invalid MIME type: ${mimetype}. Allowed types: ${allowedMimeTypes.join(', ')}`,
@@ -228,6 +228,7 @@ export class StorageService {
   private getMimeExtension(mimetype: string): string {
     const mimeMap: { [key: string]: string } = {
       'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
       'image/png': 'png',
       'image/webp': 'webp',
     };

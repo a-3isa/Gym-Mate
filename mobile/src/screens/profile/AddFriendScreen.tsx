@@ -39,12 +39,6 @@ const AddFriendScreen = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current);
-      debounceTimer.current = null;
-    }
-  }, [searchQuery]);
 
   const handleSearch = useCallback(async (email: string) => {
     // Clear previous timer
@@ -78,9 +72,10 @@ const AddFriendScreen = () => {
         } else {
           setError('User not found or not using Gym-Mate');
         }
-      } catch {
+      } catch (error: any) {
         if (!mounted.current) return;
-        setError('Failed to search. Please try again.');
+        // Network failures get a specific error message
+        setError(error.message || 'Temporary error, please try again');
       } finally {
         if (mounted.current) {
           setSearching(false);

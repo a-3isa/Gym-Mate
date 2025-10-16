@@ -4,6 +4,7 @@ import { FirestoreService } from '../firebase/services/firestore.service';
 import { AuthService as FirebaseAuthService } from '../firebase/services/auth.service';
 import { User } from '../common/interfaces/user.interface';
 import { COLLECTIONS } from '../common/constants/firestore.constants';
+import { UserNotFoundError, AlreadyFriendsError, SelfAddForbiddenError } from './auth.errors';
 
 /**
  * Service handling user authentication and profile management.
@@ -74,6 +75,8 @@ export class AuthService {
         const needsEmailLowerUpdate =
           !('emailLower' in existingUser) || existingUser.emailLower !== normalizedEmail;
 
+        const needsUidUpdate = !('uid' in existingUser) || existingUser.uid !== uid;
+
         const updatePayload: UpdateData<User> = {
           updatedAt: FieldValue.serverTimestamp() as unknown as User['updatedAt'],
         };
@@ -82,12 +85,19 @@ export class AuthService {
           updatePayload.emailLower = normalizedEmail;
         }
 
+        if (needsUidUpdate) {
+          updatePayload.uid = uid;
+        }
+
         await this.firestoreService.updateDocument(COLLECTIONS.USERS, uid, updatePayload);
 
-        this.logger.debug(`User ${uid} already exists, updated timestamp`);
+        this.logger.debug(
+          `User ${uid} already exists, updated timestamp${needsUidUpdate ? ' and backfilled uid' : ''}${needsEmailLowerUpdate ? ' and emailLower' : ''}`,
+        );
         return {
           ...existingUser,
           ...(needsEmailLowerUpdate ? { emailLower: normalizedEmail } : {}),
+          ...(needsUidUpdate ? { uid: uid } : {}),
         };
       }
 
@@ -245,12 +255,42 @@ export class AuthService {
         { field: 'emailLower', operator: '==', value: normalizedEmail },
       ]);
 
-      if (querySnapshot.empty) {
-        this.logger.debug(`No user found with email: ${normalizedEmail}`);
+      if (!querySnapshot.empty) {
+        return querySnapshot.docs[0].data();
+      }
+
+      // Fallback for legacy documents without emailLower field - use original case
+      const fallbackQuerySnapshot = await this.firestoreService.queryDocuments<User>(
+        COLLECTIONS.USERS,
+        [{ field: 'email', operator: '==', value: email }],
+      );
+
+      if (fallbackQuerySnapshot.empty) {
+        this.logger.debug(`No user found with email: ${email}`);
         return null;
       }
 
-      return querySnapshot.docs[0].data();
+      if (fallbackQuerySnapshot.docs.length > 1) {
+        this.logger.warn(`Multiple users found with email: ${email}, returning first match`);
+      }
+
+      const foundUser = fallbackQuerySnapshot.docs[0].data();
+
+      // Optionally backfill emailLower field for legacy documents
+      if (foundUser && !foundUser.emailLower) {
+        try {
+          await this.firestoreService.updateDocument(COLLECTIONS.USERS, foundUser.uid, {
+            emailLower: normalizedEmail,
+          });
+          this.logger.debug(`Backfilled emailLower for user ${foundUser.uid}`);
+        } catch (updateError) {
+          this.logger.warn(
+            `Failed to backfill emailLower for user ${foundUser.uid}: ${this.getErrorMessage(updateError)}`,
+          );
+        }
+      }
+
+      return foundUser;
     } catch (error: unknown) {
       const message = this.getErrorMessage(error);
       this.logger.error(`Failed to search user by email ${email}: ${message}`);
@@ -276,25 +316,25 @@ export class AuthService {
       // Search for the friend by email
       const friend = await this.searchUserByEmail(friendEmail);
       if (!friend) {
-        throw new Error('User not found');
+        throw new UserNotFoundError('User not found');
       }
 
       const friendUid = friend.uid;
 
       // Check if trying to add self
       if (userId === friendUid) {
-        throw new Error('Cannot add yourself as a friend');
+        throw new SelfAddForbiddenError('Cannot add yourself as a friend');
       }
 
       // Get current user to check existing friends
       const currentUser = await this.getUserProfile(userId);
       if (!currentUser) {
-        throw new Error('Current user not found');
+        throw new UserNotFoundError('Current user not found');
       }
 
       // Check if already friends
       if (currentUser.friends && currentUser.friends.includes(friendUid)) {
-        throw new Error('Already friends with this user');
+        throw new AlreadyFriendsError('Already friends with this user');
       }
 
       // Use batch write to update both users atomically
@@ -378,7 +418,7 @@ export class AuthService {
 
   /**
    * Gets the list of friends for a user.
-   * Fetches full profile data for each friend.
+   * Fetches full profile data for each friend by document ID.
    *
    * @param userId - The user whose friends to retrieve
    * @returns Array of friend User objects with profile data
@@ -391,29 +431,19 @@ export class AuthService {
         return [];
       }
 
-      // Batch read friend profiles
-      const friendProfiles: User[] = [];
-
-      // Firestore has a limit of 10 for 'in' queries, so chunk if needed
+      // Fetch friend profiles by document IDs using Promise.all
       const friendUids = user.friends;
-      const chunkSize = 10;
-
-      const queryPromises = [];
-      for (let i = 0; i < friendUids.length; i += chunkSize) {
-        const chunk = friendUids.slice(i, i + chunkSize);
-        const promise = this.firestoreService.queryDocuments<User>(COLLECTIONS.USERS, [
-          { field: 'uid', operator: 'in', value: chunk },
-        ]);
-        queryPromises.push(promise);
-      }
-
-      const querySnapshots = await Promise.all(queryPromises);
-
-      querySnapshots.forEach((querySnapshot) => {
-        querySnapshot.forEach((doc) => {
-          friendProfiles.push(doc.data());
-        });
+      const docPromises = friendUids.map((friendUid) => {
+        const docRef = this.firestoreService.getDocument<User>(COLLECTIONS.USERS, friendUid);
+        return docRef.get();
       });
+
+      const docSnapshots = await Promise.all(docPromises);
+
+      // Filter out non-existent documents and extract data
+      const friendProfiles: User[] = docSnapshots
+        .filter((docSnap) => docSnap.exists)
+        .map((docSnap) => docSnap.data() as User);
 
       this.logger.debug(`Retrieved ${friendProfiles.length} friends for user ${userId}`);
 

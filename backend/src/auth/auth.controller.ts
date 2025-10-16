@@ -27,6 +27,7 @@ import { FirebaseAuthGuard } from '../common/guards/firebase-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User } from '../common/interfaces/user.interface';
 import { UpdateProfileDto, AddFriendDto } from './dto';
+import { UserNotFoundError, AlreadyFriendsError, SelfAddForbiddenError } from './auth.errors';
 
 type PublicUser = Pick<User, 'uid' | 'displayName' | 'photoURL' | 'email'>;
 
@@ -245,6 +246,11 @@ export class AuthController {
         return null;
       }
 
+      // Prevent users from finding themselves
+      if (foundUser.uid === user.uid) {
+        return null;
+      }
+
       const publicUser: PublicUser = {
         uid: foundUser.uid,
         displayName: foundUser.displayName,
@@ -313,11 +319,11 @@ export class AuthController {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to add friend for user ${user.uid}: ${message}`);
 
-      if (message.includes('not found')) {
+      if (error instanceof UserNotFoundError) {
         throw new HttpException('User not found', HttpStatus.NOT_FOUND);
-      } else if (message.includes('Already friends')) {
+      } else if (error instanceof AlreadyFriendsError) {
         throw new HttpException('Already friends with this user', HttpStatus.CONFLICT);
-      } else if (message.includes('Cannot add yourself')) {
+      } else if (error instanceof SelfAddForbiddenError) {
         throw new HttpException('Cannot add yourself as a friend', HttpStatus.BAD_REQUEST);
       }
 

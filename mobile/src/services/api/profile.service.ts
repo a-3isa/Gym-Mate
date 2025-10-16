@@ -103,9 +103,7 @@ export async function uploadAvatar(
       name: filename,
     } as any);
 
-    const uploadResponse = await apiClient.post<User>('/auth/avatar', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    const uploadResponse = await apiClient.post<User>('/auth/avatar', formData);
 
     return uploadResponse.data;
   } catch (error: any) {
@@ -135,6 +133,7 @@ export async function getFriends(): Promise<User[]> {
  * Search for a user by email address
  * @param email Email address to search for
  * @returns Promise<PublicUser | null> Found user or null
+ * @throws Error for network failures (not server errors)
  */
 export async function searchUserByEmail(email: string): Promise<PublicUser | null> {
   try {
@@ -144,7 +143,14 @@ export async function searchUserByEmail(email: string): Promise<PublicUser | nul
     return response.data;
   } catch (error: any) {
     console.error('Failed to search user:', error);
-    // Return null for any error to prevent enumeration
+    
+    // Check if it's a network failure (no response from server)
+    if (!error.response) {
+      // Network error - throw to distinguish from server errors
+      throw new Error('Network error - please check your connection and try again');
+    }
+    
+    // Server responded with error - return null to prevent enumeration
     return null;
   }
 }

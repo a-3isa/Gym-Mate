@@ -10,7 +10,7 @@ const trimmedBaseUrl = BACKEND_API_URL.replace(/\/+$/, '');
 const baseURL = trimmedBaseUrl.endsWith('/api') ? trimmedBaseUrl : `${trimmedBaseUrl}/api`;
 
 const apiClient = axios.create({
-  baseURL,
+  baseURL :"http://192.168.0.129:3000/api",
   timeout: 10000,
 });
 

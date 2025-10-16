@@ -17,9 +17,10 @@ import {
   useTheme,
 } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import type { ImagePickerAsset } from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
-import useAuth from '../../hooks/useAuth';
+import useAuth from '@hooks/useAuth';
 import { updateProfile, uploadAvatar } from '../../services/api/profile.service';
 import {
   validateDisplayName,
@@ -65,10 +66,30 @@ const EditProfileScreen = () => {
 
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        setSelectedAsset(asset);
-        setImageUri(asset.uri);
+        
+        // Convert image to JPEG format to ensure compatibility (handles HEIC conversion)
+        const manipulatedImage = await ImageManipulator.manipulateAsync(
+          asset.uri,
+          [], // No manipulations, just format conversion
+          {
+            compress: 0.8,
+            format: ImageManipulator.SaveFormat.JPEG,
+          }
+        );
+
+        // Create a new asset object with JPEG format
+        const convertedAsset: ImagePickerAsset = {
+          ...asset,
+          uri: manipulatedImage.uri,
+          mimeType: 'image/jpeg',
+          fileName: asset.fileName?.replace(/\.(heic|HEIC)$/i, '.jpg') || 'avatar.jpg',
+        };
+
+        setSelectedAsset(convertedAsset);
+        setImageUri(convertedAsset.uri);
       }
-    } catch {
+    } catch (error) {
+      console.error('Failed to pick or process image:', error);
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
@@ -103,11 +124,11 @@ const EditProfileScreen = () => {
 
     try {
       // Upload avatar if changed
-      if (imageUri) {
+      if (imageUri && selectedAsset) {
         await uploadAvatar(imageUri, {
-          fileName: selectedAsset?.fileName ?? (selectedAsset as any)?.filename ?? null,
-          mimeType: selectedAsset?.mimeType ?? null,
-          type: selectedAsset?.type ?? null,
+          fileName: selectedAsset.fileName || 'avatar.jpg',
+          mimeType: selectedAsset.mimeType || 'image/jpeg',
+          type: selectedAsset.mimeType || 'image/jpeg',
         });
       }
 
