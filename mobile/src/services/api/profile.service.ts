@@ -103,7 +103,9 @@ export async function uploadAvatar(
       name: filename,
     } as any);
 
-    const uploadResponse = await apiClient.post<User>('/auth/avatar', formData);
+    const uploadResponse = await apiClient.post<User>('/auth/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
 
     return uploadResponse.data;
   } catch (error: any) {

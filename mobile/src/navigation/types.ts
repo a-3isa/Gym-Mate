@@ -21,12 +21,32 @@ export type ProfileStackParamList = {
 };
 
 /**
+ * Exercises stack screens for nested navigation within the Exercises tab
+ */
+export type ExercisesStackParamList = {
+  Exercises: undefined;
+  ExerciseDetail: { exerciseId: string };
+};
+
+/**
+ * Sessions stack screens for nested navigation within the Sessions tab
+ * Flow: Sessions list → CreateSession (friend selection) → SelectExercises (exercise selection) → ActiveSession (workout in progress)
+ */
+export type SessionsStackParamList = {
+  Sessions: undefined; // List of sessions
+  CreateSession: undefined; // Friend selection
+  SelectExercises: { friendUid: string; friendName: string }; // Exercise selection with friend context
+  PendingSession: { sessionId: string }; // Pending session details and accept/decline actions
+  ActiveSession: { sessionId: string }; // Active workout session with turn-based UI
+};
+
+/**
  * Main tab navigator screens
  */
 export type MainTabParamList = {
   Home: undefined;
-  Exercises: undefined;
-  Sessions: undefined;
+  Exercises: NavigatorScreenParams<ExercisesStackParamList>;
+  Sessions: NavigatorScreenParams<SessionsStackParamList>;
   Profile: NavigatorScreenParams<ProfileStackParamList>;
 };
 
@@ -43,6 +63,8 @@ export type RootStackNavigationProp = NativeStackNavigationProp<RootStackParamLi
 export type AuthStackNavigationProp = NativeStackNavigationProp<AuthStackParamList>;
 export type MainTabNavigationProp = BottomTabNavigationProp<MainTabParamList>;
 export type ProfileStackNavigationProp = NativeStackNavigationProp<ProfileStackParamList>;
+export type ExercisesStackNavigationProp = NativeStackNavigationProp<ExercisesStackParamList>;
+export type SessionsStackNavigationProp = NativeStackNavigationProp<SessionsStackParamList>;
 
 // Route prop types
 export type RootStackRouteProp<RouteName extends keyof RootStackParamList> = RouteProp<
@@ -62,6 +84,16 @@ export type MainTabRouteProp<RouteName extends keyof MainTabParamList> = RoutePr
 
 export type ProfileStackRouteProp<RouteName extends keyof ProfileStackParamList> = RouteProp<
   ProfileStackParamList,
+  RouteName
+>;
+
+export type ExercisesStackRouteProp<RouteName extends keyof ExercisesStackParamList> = RouteProp<
+  ExercisesStackParamList,
+  RouteName
+>;
+
+export type SessionsStackRouteProp<RouteName extends keyof SessionsStackParamList> = RouteProp<
+  SessionsStackParamList,
   RouteName
 >;
 

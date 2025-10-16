@@ -67,12 +67,14 @@ const EditProfileScreen = () => {
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
         
-        // Convert image to JPEG format to ensure compatibility (handles HEIC conversion)
+        // Resize and convert image to JPEG format to ensure compatibility and reduce file size
         const manipulatedImage = await ImageManipulator.manipulateAsync(
           asset.uri,
-          [], // No manipulations, just format conversion
+          [
+            { resize: { width: 1024, height: 1024 } } // Resize to max 1024x1024
+          ],
           {
-            compress: 0.8,
+            compress: 0.7, // Reduce compression to 0.7 for smaller file size
             format: ImageManipulator.SaveFormat.JPEG,
           }
         );
@@ -101,14 +103,29 @@ const EditProfileScreen = () => {
       newErrors.displayName = 'Name must be 2-50 characters (letters, spaces, hyphens, apostrophes only)';
     }
 
-    const heightNum = parseFloat(height);
-    if (height && (!heightNum || !validateHeight(heightNum))) {
-      newErrors.height = 'Height must be between 50 and 300 cm';
+    // Validate height is purely numeric (digits with optional decimal)
+    const numericRegex = /^\d+(\.\d+)?$/;
+    if (height) {
+      if (!numericRegex.test(height)) {
+        newErrors.height = 'Height must contain only numbers';
+      } else {
+        const heightNum = parseFloat(height);
+        if (!heightNum || !validateHeight(heightNum)) {
+          newErrors.height = 'Height must be between 50 and 300 cm';
+        }
+      }
     }
 
-    const weightNum = parseFloat(weight);
-    if (weight && (!weightNum || !validateWeight(weightNum))) {
-      newErrors.weight = 'Weight must be between 20 and 500 kg';
+    // Validate weight is purely numeric (digits with optional decimal)
+    if (weight) {
+      if (!numericRegex.test(weight)) {
+        newErrors.weight = 'Weight must contain only numbers';
+      } else {
+        const weightNum = parseFloat(weight);
+        if (!weightNum || !validateWeight(weightNum)) {
+          newErrors.weight = 'Weight must be between 20 and 500 kg';
+        }
+      }
     }
 
     setErrors(newErrors);

@@ -4,9 +4,9 @@ import { useTheme as useNavTheme } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { MainTabParamList } from './types';
 import HomeScreen from '../screens/HomeScreen';
-import ExercisesScreen from '../screens/ExercisesScreen';
-import SessionsScreen from '../screens/SessionsScreen';
 import ProfileStackNavigator from './ProfileStackNavigator';
+import ExercisesStackNavigator from './ExercisesStackNavigator';
+import SessionsStackNavigator from './SessionsStackNavigator';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -43,8 +43,16 @@ const MainTabNavigator = () => {
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Exercises" component={ExercisesScreen} />
-      <Tab.Screen name="Sessions" component={SessionsScreen} />
+      <Tab.Screen 
+        name="Exercises" 
+        component={ExercisesStackNavigator}
+        options={{ headerShown: false }}
+      />
+      <Tab.Screen 
+        name="Sessions" 
+        component={SessionsStackNavigator}
+        options={{ headerShown: false }}
+      />
       <Tab.Screen 
         name="Profile" 
         component={ProfileStackNavigator}

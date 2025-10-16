@@ -47,5 +47,5 @@ export interface Exercise {
   /**
    * Timestamp when the exercise was created
    */
-  createdAt: Timestamp;
+  createdAt: Timestamp | string | { seconds: number; nanoseconds: number };
 }

@@ -223,6 +223,172 @@ Profile management is handled by `profile.service.ts`:
 - `addFriend()`: Add friend by email
 - `removeFriend()`: Remove friend by UID
 
+## Exercise Library
+
+The app features a comprehensive exercise library with 100+ curated exercises across 7 categories, complete with filtering, search, and detailed exercise information.
+
+### Features
+
+- **Browse Exercises**: View 100+ curated exercises across 7 categories
+- **Category Filtering**: Filter by chest, back, legs, shoulders, arms, core, or cardio
+- **Search Functionality**: Search by exercise name, category, or muscle groups
+- **Exercise Details**: View instructions, muscle groups, equipment, and difficulty level
+- **Pull-to-Refresh**: Refresh exercise list with pull gesture
+
+### Nested Navigation Structure
+
+The Exercises tab uses nested stack navigation:
+- **ExercisesScreen**: Main library view with filtering and search
+- **ExerciseDetailScreen**: Detailed exercise information
+
+### Category Filtering UI
+
+The exercises screen features horizontal scrollable category chips:
+- **All**: Show all exercises (default)
+- **Category Chips**: Tap to filter by specific category
+- **Single-Select**: Tap active category again to show all
+- **Icons**: Each category has a unique icon for visual recognition
+
+### Exercise Data Structure
+
+Each exercise includes:
+- **Name**: Exercise name
+- **Category**: One of 7 main categories
+- **Muscle Groups**: Primary muscles targeted
+- **Instructions**: Step-by-step guide
+- **Difficulty**: Beginner, Intermediate, or Advanced
+- **Equipment**: Required equipment (bodyweight, barbell, dumbbell, etc.)
+
+### Client-Side Filtering
+
+With only 100 exercises, filtering is performed client-side for optimal performance:
+- Exercises are fetched once on screen focus
+- Category and search filters apply instantly
+- No additional API calls needed for filtering
+
+### API Service
+
+Exercise data is handled by `exercise.service.ts`:
+- `getAllExercises()`: Fetch all exercises from backend
+- `getExercisesByCategory()`: Fetch filtered exercises (server-side)
+- `getExerciseById()`: Get single exercise details
+
+### Exercise Categories
+
+**Strength Training:**
+- **Chest** (15): Bench press, push-ups, flyes, dips
+- **Back** (15): Pull-ups, rows, deadlifts, lat pulldowns
+- **Legs** (20): Squats, lunges, leg press, calf raises
+- **Shoulders** (12): Overhead press, lateral raises, shrugs
+- **Arms** (15): Bicep curls, tricep extensions, hammer curls
+- **Core** (15): Planks, crunches, leg raises, Russian twists
+
+**Cardiovascular:**
+- **Cardio** (8): Running, cycling, rowing, jump rope, burpees
+
+### Future Enhancements (Phase 2)
+
+- Video demonstrations for exercises
+- Favorite exercises feature
+- Add to workout button
+- Exercise history tracking
+- Custom exercise creation
+
+## Session Management
+
+The app provides collaborative workout session management with friend invites and turn-based progression.
+
+### Features
+
+- **Create Sessions**: Invite friends for collaborative workouts
+- **Select Exercises**: Choose exercises together with target sets configuration
+- **Turn-Based Progression**: One user trains while other rests
+- **Record Sets**: Track weight and reps after each set
+- **Automatic Turn Switching**: Turn switches after set completion
+- **Session Status Tracking**: Monitor pending, active, and completed sessions
+- **Session History**: View past workout sessions and progress
+
+### Nested Navigation Structure
+
+The Sessions tab uses nested stack navigation:
+- **SessionsScreen**: List of all sessions with status filtering
+- **CreateSessionScreen**: Friend selection for new session
+- **SelectExercisesScreen**: Exercise and target sets selection
+- **ActiveSessionScreen**: Live workout with turn-based UI
+
+### Session Creation Flow
+
+1. **Select Friend**: Choose a friend from your friends list
+2. **Choose Exercises**: Select exercises and set target sets (1-10 sets per exercise)
+3. **Create Session**: Session is created with 'pending' status
+4. **Friend Acceptance**: Friend receives invitation (acceptance flow to be enhanced in UI)
+5. **Activation**: Once accepted, session becomes 'active' and workout begins
+
+### Active Session UI
+
+The active session screen provides:
+- **Current Exercise Display**: Shows exercise name and progress
+- **Your Sets**: View your completed sets with weight/reps
+- **Partner's Sets**: View partner's completed sets
+- **Turn Indicator**: Clear indication of whose turn it is
+- **Record Set Button**: Opens modal for weight/reps input (only on your turn)
+- **Waiting Indicator**: Shows "Waiting for partner..." when it's their turn
+- **Skip Turn**: Option to manually switch turns
+- **Complete Session**: End workout early if needed
+
+### Turn-Based Logic
+
+- **Initial Turn**: Creator starts with the first turn
+- **Automatic Switching**: Turn switches after recording a set
+- **Progress Visibility**: Both users see each other's progress
+- **Manual Override**: "Skip Turn" button for flexibility
+- **Completion**: Session ends when all sets are finished or manually completed
+
+### Session States
+
+- **Pending**: Invitation sent, awaiting friend acceptance
+- **Active**: Both participants ready, workout in progress
+- **Completed**: All exercises finished or manually ended
+- **Cancelled**: Session cancelled by either participant
+
+### API Service
+
+Session management is handled by `session.service.ts`:
+- `createSession()`: Create new session with friend and exercises
+- `getUserSessions()`: Fetch user's sessions with optional status filter
+- `getSessionById()`: Get specific session details
+- `acceptSession()`: Accept or decline session invitation
+- `recordSet()`: Record completed set with weight/reps
+- `switchTurn()`: Manually switch turn to partner
+- `completeSession()`: Mark session as completed
+
+### Real-Time Updates
+
+**Current Implementation**: REST API with 5-second polling for session state updates
+
+**Next Phase (WebSocket)**: Real-time synchronization will be implemented using Socket.IO for:
+- Instant turn notifications
+- Live set updates
+- Real-time progress tracking
+- Session state changes
+
+### Troubleshooting Session Issues
+
+**Session Not Updating**:
+- Check network connection
+- Pull-to-refresh on sessions list
+- Polling interval is 5 seconds in active session
+
+**Turn Not Switching**:
+- Ensure set was recorded successfully
+- Use "Skip Turn" if automatic switch fails
+- Check session status is 'active'
+
+**Friend Not Appearing**:
+- Ensure friend relationship exists (bidirectional)
+- Refresh friends list on create session screen
+- Check friend has active account
+
 ## Troubleshooting
 
 ### Common Authentication Issues

@@ -194,6 +194,198 @@ If authentication fails, the WebSocket connection will be terminated.
     }
     ```
 
+## Exercise Library
+
+The backend provides read-only access to a curated library of exercises. Exercises are populated via a seed script and served through authenticated API endpoints.
+
+### Exercise Endpoints
+
+- **GET** `/api/exercises`: Get all exercises or filter by category
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Query Parameters** (optional):
+    - `category`: Filter by category (`chest`, `back`, `legs`, `shoulders`, `arms`, `core`, `cardio`)
+  - **Response**: Array of Exercise objects
+    ```json
+    [
+      {
+        "id": "abc123",
+        "name": "Bench Press",
+        "category": "chest",
+        "muscleGroups": ["pectoralis major", "triceps"],
+        "instructions": "Lie on bench, grip bar wider than shoulders...",
+        "difficulty": "intermediate",
+        "equipment": ["barbell", "bench"],
+        "createdAt": "2024-01-01T00:00:00.000Z"
+      }
+    ]
+    ```
+
+- **GET** `/api/exercises/:id`: Get a single exercise by ID
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Response**: Single Exercise object
+  - **Errors**:
+    - 404: Exercise not found
+
+### Seeding Exercises
+
+To populate the exercises collection with curated data:
+
+1. Configure Firebase credentials in `.env`
+2. Run the seed script:
+   ```bash
+   npm run seed:exercises
+   ```
+
+The seed script:
+- Uses Firebase Admin SDK BulkWriter for efficient batch writes
+- Supports both emulator (set `FIRESTORE_EMULATOR_HOST`) and production environments
+- In production, requires `--force` flag or `NODE_ENV` not set to `production`
+- Is idempotent and can be run multiple times safely (uses deterministic document IDs with format `{category}-{slugified-name}`)
+- Includes preflight duplicate detection to prevent naming collisions across categories
+- Seeds 100 curated exercises across 7 categories
+
+### Exercise Categories
+
+The library includes exercises in the following categories:
+- **Chest**: 15 exercises (bench press variations, push-ups, flyes)
+- **Back**: 15 exercises (pull-ups, rows, deadlifts)
+- **Legs**: 20 exercises (squats, lunges, leg press)
+- **Shoulders**: 12 exercises (overhead press, lateral raises)
+- **Arms**: 15 exercises (bicep curls, tricep extensions)
+- **Core**: 15 exercises (planks, crunches, leg raises)
+- **Cardio**: 8 exercises (running, cycling, burpees)
+
+Each exercise includes variations for different equipment levels (barbell, dumbbell, machine, bodyweight).
+
+### Future Enhancements
+
+- Admin endpoints for exercise management (create/update/delete)
+- Video URLs for exercise demonstrations
+- Exercise favorites and history tracking
+- Custom exercise creation by users
+
+## Session Management
+
+The backend provides collaborative workout session management with friend invites and turn-based progression.
+
+### Session Endpoints
+
+- **POST** `/api/sessions`: Create a new workout session
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Request Body** (CreateSessionDto):
+    ```json
+    {
+      "friendUid": "friend123",
+      "exercises": [
+        {
+          "exerciseId": "chest-bench-press",
+          "exerciseName": "Bench Press",
+          "targetSets": 3
+        },
+        {
+          "exerciseId": "chest-dumbbell-flyes",
+          "exerciseName": "Dumbbell Flyes",
+          "targetSets": 4
+        }
+      ]
+    }
+    ```
+  - **Response**: Created Session object
+  - **Requires authentication**
+
+- **GET** `/api/sessions`: Get user's sessions
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Query Parameters** (optional):
+    - `status`: Filter by status (`pending`, `active`, `completed`, `cancelled`)
+  - **Response**: Array of user's Session objects
+  - **Requires authentication**
+
+- **GET** `/api/sessions/:id`: Get a specific session
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Response**: Single Session object
+  - **Errors**:
+    - 404: Session not found or user not participant
+  - **Requires authentication**
+
+- **POST** `/api/sessions/:id/accept`: Accept or decline session invitation
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Request Body** (AcceptSessionDto):
+    ```json
+    {
+      "accepted": true,
+      "exercises": []  // Optional: propose exercise modifications
+    }
+    ```
+  - **Response**: Updated Session object
+  - **Requires authentication**
+
+- **PATCH** `/api/sessions/:id/status`: Update session status
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Request Body** (UpdateSessionDto):
+    ```json
+    {
+      "status": "active"
+    }
+    ```
+  - **Response**: Updated Session object
+  - **Requires authentication**
+
+- **POST** `/api/sessions/:id/sets`: Record a completed set
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Request Body** (RecordSetDto):
+    ```json
+    {
+      "exerciseId": "chest-bench-press",
+      "setNumber": 1,
+      "weight": 60,
+      "reps": 10
+    }
+    ```
+  - **Response**: Updated Session with new set recorded
+  - **Requires authentication**
+
+- **POST** `/api/sessions/:id/turn`: Switch turn to other participant
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Response**: Updated Session with toggled turn
+  - **Requires authentication**
+
+- **POST** `/api/sessions/:id/complete`: Complete the session
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Response**: Completed Session object
+  - **Requires authentication**
+
+### Session Flow
+
+The collaborative workout process follows these steps:
+
+1. **Creation**: Creator invites a friend with pre-selected exercises
+2. **Acceptance**: Friend accepts/declines invitation (can propose exercise modifications)
+3. **Agreement**: Both users must agree on exercises before session starts
+4. **Activation**: Status changes from `pending` to `active`
+5. **Turn-based progression**: One user trains while other rests
+6. **Set recording**: After each set, the active user records weight/reps
+7. **Turn switching**: Turn automatically switches after set completion
+8. **Completion**: Session completes when all exercises finished or manually ended
+
+### Session States
+
+Sessions transition through the following states:
+
+- **pending**: Invitation sent, awaiting acceptance
+- **active**: Both participants ready, workout in progress
+- **completed**: All exercises finished or manually ended
+- **cancelled**: Session cancelled by either participant
+
+### Turn-Based Logic
+
+- Creator starts with the first turn (`currentTurn` set to creator's UID)
+- After recording a set, turn automatically switches to partner
+- Both users can see each other's progress in the session
+- Manual turn switching is available via the `/turn` endpoint
+- Session completes when all target sets are finished by both participants
+
+**Note**: Real-time synchronization via WebSocket is planned for Phase 1 - Real-time Session Sync. This phase focuses on REST API state management.
+
 ## Firebase Setup
 
 ### Obtaining Firebase Credentials
@@ -361,6 +553,31 @@ Used for adding friends by email:
   createdAt: Timestamp,
   startedAt?: Timestamp,
   completedAt?: Timestamp
+}
+
+// SessionParticipant
+{
+  uid: string,
+  displayName: string,
+  status: 'invited' | 'accepted' | 'declined' | 'active' | 'resting'
+}
+
+// SessionExercise
+{
+  exerciseId: string,
+  exerciseName: string,
+  targetSets: number,
+  completedSets: number
+}
+
+// SetRecord
+{
+  participantUid: string,
+  exerciseId: string,
+  setNumber: number,
+  weight: number,        // in kilograms
+  reps: number,
+  completedAt: Timestamp
 }
 ```
 

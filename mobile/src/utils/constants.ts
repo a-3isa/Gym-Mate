@@ -22,3 +22,17 @@ export const FONT_SIZES = {
   large: 20,
   xlarge: 24
 };
+
+/**
+ * Exercise categories with display labels and icons
+ * Used for consistent UI rendering across the app
+ */
+export const EXERCISE_CATEGORIES = [
+  { key: 'chest', label: 'Chest', icon: 'arm-flex' },
+  { key: 'back', label: 'Back', icon: 'weight-lifter' },
+  { key: 'legs', label: 'Legs', icon: 'run' },
+  { key: 'shoulders', label: 'Shoulders', icon: 'arm-flex-outline' },
+  { key: 'arms', label: 'Arms', icon: 'arm-flex' },
+  { key: 'core', label: 'Core', icon: 'yoga' },
+  { key: 'cardio', label: 'Cardio', icon: 'run-fast' },
+];

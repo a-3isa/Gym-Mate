@@ -384,31 +384,65 @@ export class AuthService {
    */
   async removeFriend(userId: string, friendUid: string): Promise<{ success: boolean }> {
     try {
-      // Use batch write to update both users atomically
-      await this.firestoreService.batchWrite([
-        {
-          type: 'update',
-          collection: COLLECTIONS.USERS,
-          docId: userId,
-          data: {
-            friends: FieldValue.arrayRemove(friendUid),
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-        },
-        {
-          type: 'update',
-          collection: COLLECTIONS.USERS,
-          docId: friendUid,
-          data: {
-            friends: FieldValue.arrayRemove(userId),
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-        },
-      ]);
+      // Fetch the friend profile to check if it exists
+      const friendProfile = await this.getUserProfile(friendUid);
 
-      this.logger.log(`Removed friend relationship between ${userId} and ${friendUid}`);
+      if (!friendProfile) {
+        // Friend document doesn't exist, only update current user
+        await this.firestoreService.batchWrite([
+          {
+            type: 'update',
+            collection: COLLECTIONS.USERS,
+            docId: userId,
+            data: {
+              friends: FieldValue.arrayRemove(friendUid),
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+          },
+        ]);
 
-      return { success: true };
+        this.logger.log(
+          `Removed friend relationship for ${userId} (friend ${friendUid} document not found)`,
+        );
+        return { success: true };
+      }
+
+      // Friend exists, proceed with two-sided batch
+      try {
+        await this.firestoreService.batchWrite([
+          {
+            type: 'update',
+            collection: COLLECTIONS.USERS,
+            docId: userId,
+            data: {
+              friends: FieldValue.arrayRemove(friendUid),
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+          },
+          {
+            type: 'update',
+            collection: COLLECTIONS.USERS,
+            docId: friendUid,
+            data: {
+              friends: FieldValue.arrayRemove(userId),
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+          },
+        ]);
+
+        this.logger.log(`Removed friend relationship between ${userId} and ${friendUid}`);
+        return { success: true };
+      } catch (batchError: unknown) {
+        const errorCode = this.getErrorCode(batchError);
+        if (errorCode === 'NOT_FOUND' || this.isFirestoreNotFoundError(batchError)) {
+          // Friend doc was deleted between our check and batch - soft success
+          this.logger.log(
+            `Friend document ${friendUid} was deleted during batch, but removed from user ${userId}`,
+          );
+          return { success: true };
+        }
+        throw batchError;
+      }
     } catch (error: unknown) {
       const message = this.getErrorMessage(error);
       this.logger.error(`Failed to remove friend for user ${userId}: ${message}`);
