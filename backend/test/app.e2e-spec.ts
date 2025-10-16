@@ -19,11 +19,13 @@ describe('App (e2e)', () => {
   });
 
   it(`/${API_PREFIX}/health (GET)`, () => {
-    return request(app.getHttpServer())
+    const httpServer = app.getHttpServer() as unknown as Parameters<typeof request>[0];
+
+    return request(httpServer)
       .get(`/${API_PREFIX}/health`)
       .expect(200)
-      .expect((res: any) => {
-        expect(res.body.status).toBe('ok');
+      .expect((res) => {
+        expect((res.body as { status: string }).status).toBe('ok');
       });
   });
 

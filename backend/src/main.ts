@@ -37,8 +37,15 @@ async function bootstrap() {
 
   app.useWebSocketAdapter(new ConfiguredSocketIoAdapter(app));
 
-  const port = configService.get<number>('port', 3000);
-  await app.listen(port);
-  Logger.log(`Application is running on: http://localhost:${port}`, 'Bootstrap');
+  const port = configService.get<number>('port') ?? 3000;
+  const host = configService.get<string>('host') ?? '0.0.0.0';
+  await app.listen(port, host);
+
+  Logger.log(`Application is running on: http://${host}:${port}`, 'Bootstrap');
 }
-bootstrap();
+bootstrap().catch((error) => {
+  Logger.error(
+    `Failed to bootstrap application: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  process.exitCode = 1;
+});

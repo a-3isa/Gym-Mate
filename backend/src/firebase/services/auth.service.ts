@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { Auth, DecodedIdToken, UserRecord } from 'firebase-admin/auth';
-import { AUTH } from '../firebase.module';
+import { Auth, CreateRequest, DecodedIdToken, UserRecord } from 'firebase-admin/auth';
+import { AUTH } from '../firebase.tokens';
 
 /**
  * AuthService
@@ -12,6 +12,29 @@ import { AUTH } from '../firebase.module';
 export class AuthService {
   constructor(@Inject(AUTH) private readonly auth: Auth) {}
 
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (typeof error === 'object' && error !== null && 'message' in error) {
+      const message = (error as { message?: unknown }).message;
+      if (typeof message === 'string') {
+        return message;
+      }
+    }
+    return typeof error === 'string' ? error : 'Unknown error';
+  }
+
+  private getErrorCode(error: unknown): string | undefined {
+    if (typeof error === 'object' && error !== null && 'code' in error) {
+      const code = (error as { code?: unknown }).code;
+      if (typeof code === 'string') {
+        return code;
+      }
+    }
+    return undefined;
+  }
+
   /**
    * Verify a Firebase ID token
    * @param idToken Firebase ID token to verify
@@ -20,8 +43,9 @@ export class AuthService {
   async verifyIdToken(idToken: string): Promise<DecodedIdToken> {
     try {
       return await this.auth.verifyIdToken(idToken);
-    } catch (error) {
-      throw new Error(`Failed to verify ID token: ${error.message}`);
+    } catch (error: unknown) {
+      const message = this.getErrorMessage(error);
+      throw new Error(`Failed to verify ID token: ${message}`);
     }
   }
 
@@ -33,11 +57,13 @@ export class AuthService {
   async getUser(uid: string): Promise<UserRecord> {
     try {
       return await this.auth.getUser(uid);
-    } catch (error) {
-      if (error.code === 'auth/user-not-found') {
+    } catch (error: unknown) {
+      const code = this.getErrorCode(error);
+      if (code === 'auth/user-not-found') {
         throw new Error(`User with UID ${uid} not found`);
       }
-      throw new Error(`Failed to get user ${uid}: ${error.message}`);
+      const message = this.getErrorMessage(error);
+      throw new Error(`Failed to get user ${uid}: ${message}`);
     }
   }
 
@@ -51,7 +77,7 @@ export class AuthService {
    */
   async createUser(email: string, password: string, displayName?: string): Promise<UserRecord> {
     try {
-      const createRequest: any = {
+      const createRequest: CreateRequest = {
         email,
         password,
         emailVerified: false,
@@ -62,14 +88,16 @@ export class AuthService {
       }
 
       return await this.auth.createUser(createRequest);
-    } catch (error) {
-      if (error.code === 'auth/email-already-exists') {
+    } catch (error: unknown) {
+      const code = this.getErrorCode(error);
+      if (code === 'auth/email-already-exists') {
         throw new Error(`Email ${email} is already registered`);
       }
-      if (error.code === 'auth/invalid-password') {
+      if (code === 'auth/invalid-password') {
         throw new Error('Password does not meet requirements');
       }
-      throw new Error(`Failed to create user: ${error.message}`);
+      const message = this.getErrorMessage(error);
+      throw new Error(`Failed to create user: ${message}`);
     }
   }
 
@@ -89,14 +117,16 @@ export class AuthService {
   ): Promise<UserRecord> {
     try {
       return await this.auth.updateUser(uid, properties);
-    } catch (error) {
-      if (error.code === 'auth/user-not-found') {
+    } catch (error: unknown) {
+      const code = this.getErrorCode(error);
+      if (code === 'auth/user-not-found') {
         throw new Error(`User with UID ${uid} not found`);
       }
-      if (error.code === 'auth/email-already-exists') {
+      if (code === 'auth/email-already-exists') {
         throw new Error('Email is already in use by another account');
       }
-      throw new Error(`Failed to update user ${uid}: ${error.message}`);
+      const message = this.getErrorMessage(error);
+      throw new Error(`Failed to update user ${uid}: ${message}`);
     }
   }
 
@@ -108,11 +138,13 @@ export class AuthService {
   async deleteUser(uid: string): Promise<void> {
     try {
       await this.auth.deleteUser(uid);
-    } catch (error) {
-      if (error.code === 'auth/user-not-found') {
+    } catch (error: unknown) {
+      const code = this.getErrorCode(error);
+      if (code === 'auth/user-not-found') {
         throw new Error(`User with UID ${uid} not found`);
       }
-      throw new Error(`Failed to delete user ${uid}: ${error.message}`);
+      const message = this.getErrorMessage(error);
+      throw new Error(`Failed to delete user ${uid}: ${message}`);
     }
   }
 
@@ -125,11 +157,13 @@ export class AuthService {
   async setCustomClaims(uid: string, claims: object): Promise<void> {
     try {
       await this.auth.setCustomUserClaims(uid, claims);
-    } catch (error) {
-      if (error.code === 'auth/user-not-found') {
+    } catch (error: unknown) {
+      const code = this.getErrorCode(error);
+      if (code === 'auth/user-not-found') {
         throw new Error(`User with UID ${uid} not found`);
       }
-      throw new Error(`Failed to set custom claims for user ${uid}: ${error.message}`);
+      const message = this.getErrorMessage(error);
+      throw new Error(`Failed to set custom claims for user ${uid}: ${message}`);
     }
   }
 }

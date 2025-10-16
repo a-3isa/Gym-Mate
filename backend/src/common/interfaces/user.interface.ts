@@ -15,6 +15,11 @@ export interface User {
   email: string;
 
   /**
+   * Lowercased email used for case-insensitive lookups
+   */
+  emailLower?: string;
+
+  /**
    * User's display name
    */
   displayName: string;

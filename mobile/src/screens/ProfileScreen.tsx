@@ -1,27 +1,101 @@
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Text, Avatar, List, useTheme } from 'react-native-paper';
+import React, { useState } from 'react';
+import { View, StyleSheet, Alert } from 'react-native';
+import { Text, Avatar, List, useTheme, ActivityIndicator } from 'react-native-paper';
+import { useNavigation } from '@react-navigation/native';
+import useAuth from '@hooks/useAuth';
 import { SPACING } from '@utils/constants';
+import { ProfileStackNavigationProp } from '@navigation/types';
 
+/**
+ * ProfileScreen displays user information and account management options.
+ * Includes logout functionality and user profile display.
+ */
 const ProfileScreen = () => {
   const { colors } = useTheme();
+  const { user, logout } = useAuth();
+  const navigation = useNavigation<ProfileStackNavigationProp>();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            setIsLoggingOut(true);
+            try {
+              await logout();
+            } catch {
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+              setIsLoggingOut(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  if (isLoggingOut) {
+    return (
+      <View style={[styles.container, styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" />
+        <Text style={[styles.loadingText, { color: colors.onSurface }]}>Signing out...</Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }] }>
-      <Avatar.Icon
-        size={96}
-        icon="account"
-        style={styles.avatar}
-        color={colors.onPrimary}
-        theme={{ colors: { primary: colors.primary } }}
-      />
-      <Text variant="headlineSmall" style={[styles.username, { color: colors.onSurface }] }>
-        User Name
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {user?.photoURL ? (
+        <Avatar.Image
+          size={96}
+          source={{ uri: user.photoURL }}
+          style={styles.avatar}
+        />
+      ) : (
+        <Avatar.Icon
+          size={96}
+          icon="account"
+          style={styles.avatar}
+          color={colors.onPrimary}
+          theme={{ colors: { primary: colors.primary } }}
+        />
+      )}
+      <Text variant="headlineSmall" style={[styles.username, { color: colors.onSurface }]}>
+        {user?.displayName || 'User'}
+      </Text>
+      <Text variant="bodyMedium" style={[styles.email, { color: colors.onSurfaceVariant }]}>
+        {user?.email}
       </Text>
       <List.Section style={styles.listSection}>
-        <List.Item title="Edit Profile" left={(props) => <List.Icon {...props} icon="account-edit" />} />
-        <List.Item title="Settings" left={(props) => <List.Icon {...props} icon="cog" />} />
-        <List.Item title="Logout" left={(props) => <List.Icon {...props} icon="logout" />} />
+        <List.Item 
+          title="Edit Profile" 
+          left={(props) => <List.Icon {...props} icon="account-edit" />}
+          onPress={() => navigation.navigate('EditProfile')}
+          disabled={isLoggingOut}
+        />
+        <List.Item 
+          title="Friends" 
+          left={(props) => <List.Icon {...props} icon="account-multiple" />}
+          onPress={() => navigation.navigate('FriendList')}
+          disabled={isLoggingOut}
+        />
+        <List.Item 
+          title="Settings" 
+          left={(props) => <List.Icon {...props} icon="cog" />}
+          disabled={isLoggingOut}
+        />
+        <List.Item 
+          title="Sign Out" 
+          left={(props) => <List.Icon {...props} icon="logout" color={colors.error} />}
+          onPress={handleLogout}
+          disabled={isLoggingOut}
+          titleStyle={{ color: colors.error }}
+        />
       </List.Section>
     </View>
   );
@@ -34,10 +108,19 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.xl * 1.5,
     paddingHorizontal: SPACING.lg
   },
+  loadingContainer: {
+    justifyContent: 'center'
+  },
+  loadingText: {
+    marginTop: SPACING.md
+  },
   avatar: {
     marginBottom: SPACING.md
   },
   username: {
+    marginBottom: SPACING.xs
+  },
+  email: {
     marginBottom: SPACING.lg
   },
   listSection: {

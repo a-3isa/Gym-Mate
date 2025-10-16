@@ -6,7 +6,7 @@ import { MainTabParamList } from './types';
 import HomeScreen from '../screens/HomeScreen';
 import ExercisesScreen from '../screens/ExercisesScreen';
 import SessionsScreen from '../screens/SessionsScreen';
-import ProfileScreen from '../screens/ProfileScreen';
+import ProfileStackNavigator from './ProfileStackNavigator';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -38,14 +38,18 @@ const MainTabNavigator = () => {
           size: number;
         }) => {
           const iconName = TAB_ICONS[route.name] || 'circle';
-          return <MaterialCommunityIcons name={iconName} color={color} size={size} />;
+          return <MaterialCommunityIcons name={iconName as any} color={color} size={size} />;
         }
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Exercises" component={ExercisesScreen} />
       <Tab.Screen name="Sessions" component={SessionsScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen 
+        name="Profile" 
+        component={ProfileStackNavigator}
+        options={{ headerShown: false }}
+      />
     </Tab.Navigator>
   );
 };

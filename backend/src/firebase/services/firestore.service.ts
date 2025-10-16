@@ -3,12 +3,13 @@ import {
   Firestore,
   CollectionReference,
   DocumentReference,
+  Query,
   QuerySnapshot,
-  WriteBatch,
   WhereFilterOp,
   DocumentData,
+  UpdateData,
 } from 'firebase-admin/firestore';
-import { FIRESTORE } from '../firebase.module';
+import { FIRESTORE } from '../firebase.tokens';
 
 /**
  * FirestoreService
@@ -25,8 +26,10 @@ export class FirestoreService {
    * @param collectionName Name of the collection
    * @returns CollectionReference
    */
-  getCollection(collectionName: string): CollectionReference {
-    return this.firestore.collection(collectionName);
+  getCollection<T extends DocumentData = DocumentData>(
+    collectionName: string,
+  ): CollectionReference<T> {
+    return this.firestore.collection(collectionName) as CollectionReference<T>;
   }
 
   /**
@@ -35,8 +38,11 @@ export class FirestoreService {
    * @param docId Document ID
    * @returns DocumentReference
    */
-  getDocument(collectionName: string, docId: string): DocumentReference {
-    return this.firestore.collection(collectionName).doc(docId);
+  getDocument<T extends DocumentData = DocumentData>(
+    collectionName: string,
+    docId: string,
+  ): DocumentReference<T> {
+    return this.firestore.collection(collectionName).doc(docId) as DocumentReference<T>;
   }
 
   /**
@@ -46,13 +52,13 @@ export class FirestoreService {
    * @param docId Optional custom document ID
    * @returns Promise<DocumentReference>
    */
-  async createDocument(
+  async createDocument<T extends DocumentData = DocumentData>(
     collectionName: string,
-    data: any,
+    data: T,
     docId?: string,
-  ): Promise<DocumentReference> {
+  ): Promise<DocumentReference<T>> {
     try {
-      const collection = this.getCollection(collectionName);
+      const collection = this.getCollection<T>(collectionName);
 
       if (docId) {
         const docRef = collection.doc(docId);
@@ -63,7 +69,31 @@ export class FirestoreService {
         return docRef;
       }
     } catch (error) {
-      throw new Error(`Failed to create document in ${collectionName}: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create document in ${collectionName}: ${message}`);
+    }
+  }
+
+  /**
+   * Set a document with optional merge semantics
+   * @param collectionName Name of the collection
+   * @param docId Document ID
+   * @param data Document data
+   * @param merge Whether to merge with existing data (default: true)
+   * @returns Promise<void>
+   */
+  async setDocument<T extends DocumentData = DocumentData>(
+    collectionName: string,
+    docId: string,
+    data: T,
+    merge = true,
+  ): Promise<void> {
+    try {
+      const docRef = this.getDocument<T>(collectionName, docId);
+      await docRef.set(data, { merge });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to set document ${docId} in ${collectionName}: ${message}`);
     }
   }
 
@@ -74,12 +104,17 @@ export class FirestoreService {
    * @param data Update data
    * @returns Promise<void>
    */
-  async updateDocument(collectionName: string, docId: string, data: any): Promise<void> {
+  async updateDocument<T extends DocumentData = DocumentData>(
+    collectionName: string,
+    docId: string,
+    data: UpdateData<T>,
+  ): Promise<void> {
     try {
-      const docRef = this.getDocument(collectionName, docId);
+      const docRef = this.getDocument<T>(collectionName, docId);
       await docRef.update(data);
     } catch (error) {
-      throw new Error(`Failed to update document ${docId} in ${collectionName}: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to update document ${docId} in ${collectionName}: ${message}`);
     }
   }
 
@@ -94,9 +129,8 @@ export class FirestoreService {
       const docRef = this.getDocument(collectionName, docId);
       await docRef.delete();
     } catch (error) {
-      throw new Error(
-        `Failed to delete document ${docId} from ${collectionName}: ${error.message}`,
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to delete document ${docId} from ${collectionName}: ${message}`);
     }
   }
 
@@ -106,16 +140,16 @@ export class FirestoreService {
    * @param filters Array of filter conditions
    * @returns Promise<QuerySnapshot>
    */
-  async queryDocuments(
+  async queryDocuments<T extends DocumentData = DocumentData>(
     collectionName: string,
     filters: Array<{
       field: string;
       operator: WhereFilterOp;
-      value: any;
+      value: unknown;
     }>,
-  ): Promise<QuerySnapshot> {
+  ): Promise<QuerySnapshot<T>> {
     try {
-      let query: any = this.getCollection(collectionName);
+      let query: Query<T> = this.getCollection<T>(collectionName);
 
       for (const filter of filters) {
         query = query.where(filter.field, filter.operator, filter.value);
@@ -123,7 +157,8 @@ export class FirestoreService {
 
       return await query.get();
     } catch (error) {
-      throw new Error(`Failed to query documents in ${collectionName}: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to query documents in ${collectionName}: ${message}`);
     }
   }
 
@@ -132,12 +167,12 @@ export class FirestoreService {
    * @param operations Array of batch operations
    * @returns Promise<void>
    */
-  async batchWrite(
+  async batchWrite<T extends DocumentData = DocumentData>(
     operations: Array<{
       type: 'create' | 'update' | 'delete';
       collection: string;
       docId?: string;
-      data?: any;
+      data?: T | UpdateData<T>;
     }>,
   ): Promise<void> {
     try {
@@ -145,22 +180,22 @@ export class FirestoreService {
 
       for (const op of operations) {
         if (op.type === 'create') {
-          const docRef = op.docId
-            ? this.getDocument(op.collection, op.docId)
-            : this.getCollection(op.collection).doc();
-          batch.set(docRef, op.data);
+          const collectionRef = this.getCollection<T>(op.collection);
+          const docRef = op.docId ? collectionRef.doc(op.docId) : collectionRef.doc();
+          batch.set(docRef, op.data as T);
         } else if (op.type === 'update' && op.docId) {
-          const docRef = this.getDocument(op.collection, op.docId);
-          batch.update(docRef, op.data);
+          const docRef = this.getDocument<T>(op.collection, op.docId);
+          batch.update(docRef, op.data as UpdateData<T>);
         } else if (op.type === 'delete' && op.docId) {
-          const docRef = this.getDocument(op.collection, op.docId);
+          const docRef = this.getDocument<T>(op.collection, op.docId);
           batch.delete(docRef);
         }
       }
 
       await batch.commit();
     } catch (error) {
-      throw new Error(`Failed to execute batch write: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to execute batch write: ${message}`);
     }
   }
 }

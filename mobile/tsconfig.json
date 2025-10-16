@@ -9,7 +9,13 @@
     "resolveJsonModule": true,
     "baseUrl": "./src",
     "paths": {
+      "@firebase/auth": ["./node_modules/@firebase/auth/dist/index.rn.d.ts"],
+      "@components": ["components"],
       "@components/*": ["components/*"],
+      "@contexts": ["contexts"],
+      "@contexts/*": ["contexts/*"],
+      "@hooks": ["hooks"],
+      "@hooks/*": ["hooks/*"],
       "@screens/*": ["screens/*"],
       "@services/*": ["services/*"],
       "@navigation/*": ["navigation/*"],
@@ -20,5 +26,6 @@
       "@theme/*": ["theme/*"]
     }
   },
+  
   "include": ["src", "App.tsx", "src/types"]
 }

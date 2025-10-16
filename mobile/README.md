@@ -11,7 +11,9 @@ Train together virtually with the Gym-Mate mobile application built using Expo a
 - Axios
 - react-native-dotenv
 - react-native-reanimated
-- Firebase native modules (`@react-native-firebase/*`) deferred until Authentication phase to keep Expo Go compatibility
+- Firebase JS SDK for authentication
+- AsyncStorage for persistent sessions
+- expo-image-picker for profile photo uploads
 
 ## Prerequisites
 
@@ -30,6 +32,8 @@ Train together virtually with the Gym-Mate mobile application built using Expo a
    cp .env.example .env
    ```
 3. Fill in Firebase credentials from the Firebase Console and update `BACKEND_API_URL` if necessary.
+   - Firebase configuration values are required for authentication to work
+   - Ensure the backend is running and accessible at the specified URL
 
 ## Available Scripts
 
@@ -62,6 +66,7 @@ mobile/
 ```
 
 - `src/screens/` – screen components grouped by feature
+  - `profile/` – profile-related screens (Edit, Friends, Add Friend)
 - `src/components/` – reusable UI components
 - `src/navigation/` – navigation stacks, tabs, and types
 - `src/services/` – API and Firebase integrations
@@ -76,22 +81,53 @@ All environment variables are defined in `.env` and typed in `src/types/env.d.ts
 - `BACKEND_API_URL` – Base URL for Gym-Mate backend API
 - `FIREBASE_*` – Firebase configuration values
 
+## Authentication
+
+The app uses Firebase Authentication with the JavaScript SDK for user management. Authentication state is managed globally using React Context.
+
+### Features
+
+- **Email/Password Authentication**: Users can sign up and sign in with email and password
+- **Persistent Sessions**: Uses AsyncStorage to maintain authentication state across app restarts
+- **Automatic Token Management**: Firebase ID tokens are automatically attached to API requests
+- **Token Refresh**: Expired tokens are automatically refreshed on 401 responses
+- **Profile Sync**: User profiles are automatically created/synced with the backend on first login
+
+### Authentication Flow
+
+1. **Registration**: User enters email, password, and display name → Firebase creates account → Backend creates user profile
+2. **Login**: User enters credentials → Firebase authenticates → Backend returns user profile
+3. **Protected Routes**: Authentication state determines navigation (Auth stack vs Main tabs)
+4. **API Requests**: Firebase ID token automatically attached to requests via Axios interceptor
+
+### Components
+
+- **AuthProvider**: Global authentication state management
+- **AuthContext**: Provides auth methods (login, register, logout, getIdToken, refreshProfile)
+- **useAuth Hook**: Access authentication state and methods in components
+- **LoginScreen/RegisterScreen**: Authentication UI with validation
+- **Conditional Navigation**: AppNavigator shows Auth or Main based on auth state
+
+### Token Management
+
+Firebase ID tokens expire after 1 hour. The app handles this automatically:
+- Tokens are refreshed before API requests if expired
+- On 401 responses, tokens are force-refreshed and request retried once
+- Failed refresh attempts log the user out
+
 ## Development Guidelines
 
 - Use path aliases defined in `tsconfig.json` for cleaner imports.
 - Keep TypeScript strict mode in mind when creating new components.
 - Prefer React Native Paper components for consistent UI.
 - Place static assets under `src/assets/` and reference them via aliases.
+- Always handle authentication errors gracefully with user-friendly messages
 
 ## Development Workflow
 
-### Expo Go Compatibility
+### Running the App
 
-To maintain compatibility with **Expo Go** during the initial development phase, Firebase packages (`@react-native-firebase/*`) have been deferred and will be reintroduced during the authentication implementation phase.
-
-**Note:** These `@react-native-firebase/*` packages remain deferred until the Authentication phase and will require a custom development client once added.
-
-This allows you to run the app directly in Expo Go without requiring a custom development client:
+The app uses Firebase JavaScript SDK which is compatible with Expo Go:
 
 ```bash
 npm start
@@ -99,74 +135,165 @@ npm start
 
 Then scan the QR code with the Expo Go app on your mobile device.
 
-### Firebase Integration (Future Phase)
+### Firebase Setup
 
-When Firebase authentication and Firestore are needed, the following packages will be added:
-- `@react-native-firebase/app`
-- `@react-native-firebase/auth`
-- `@react-native-firebase/firestore`
-
-At that point, you'll need to use a custom development client:
-
-1. **Custom Dev Client**: Use `npx expo run:android` or `npx expo run:ios` to build and run with native Firebase modules.
-
-2. **EAS Development Build**: Alternatively, create an EAS development build:
-   ```bash
-   npx eas build --profile development --platform android
+1. **Create a Firebase Project**: Go to [Firebase Console](https://console.firebase.google.com/)
+2. **Enable Authentication**: Navigate to Authentication → Sign-in method → Enable Email/Password
+3. **Get Web App Credentials**: Project Settings → General → Your apps → Add Web app
+4. **Copy Configuration**: Copy the Firebase config object to your `.env` file:
+   ```
+   FIREBASE_API_KEY=your-api-key
+   FIREBASE_AUTH_DOMAIN=your-auth-domain
+   FIREBASE_PROJECT_ID=your-project-id
+   FIREBASE_STORAGE_BUCKET=your-storage-bucket
+   FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+   FIREBASE_APP_ID=your-app-id
    ```
 
-## Backlog & Future Tasks
+### Testing Authentication
 
-### 🔥 Firebase Native SDK Integration (Deferred)
+1. **Start Backend**: Ensure the backend is running and accessible
+2. **Configure Backend URL**: Set `BACKEND_API_URL` in `.env`
+3. **Run the App**: Use `npm start` and open in Expo Go
+4. **Register**: Create a new account on the Register screen
+5. **Login**: Sign in with your credentials
+6. **Profile**: View your profile and sign out from the Profile tab
 
-**Status**: Deferred until Authentication Phase  
-**Priority**: High (required for production authentication)
+## Profile Management
 
-#### Packages to Add
+The app includes comprehensive profile management features allowing users to customize their profiles and manage social connections.
 
-The following Firebase native packages are **intentionally omitted** from the current `package.json` and must be added when implementing the Authentication feature:
+### Features
 
-- `@react-native-firebase/app` – Core Firebase SDK for React Native
-- `@react-native-firebase/auth` – Firebase Authentication module
-- `@react-native-firebase/firestore` – Cloud Firestore database module
+- **Profile Editing**: Update display name, height, weight, and avatar photo
+- **Avatar Upload**: Use expo-image-picker to select and upload profile photos
+- **Friend Management**: Add and remove friends by email search
+- **Nested Navigation**: Profile tab uses nested stack navigation for sub-screens
 
-#### Rationale for Deferral
+### Profile Stack Navigation
 
-These packages require native modules that are **incompatible with Expo Go**. They have been intentionally deferred to maintain Expo Go compatibility during the initial development phase, allowing rapid prototyping and testing without building custom development clients.
+The Profile tab contains a nested stack navigator with:
+- **ProfileScreen**: Main profile view with user info and menu options
+- **EditProfileScreen**: Edit profile details and upload avatar
+- **FriendListScreen**: View and manage friend list
+- **AddFriendScreen**: Search and add friends by email
 
-#### When to Add These Packages
+### Image Handling
 
-Add these packages when:
-1. Implementing user authentication (sign-up, login, logout)
-2. Integrating Cloud Firestore for real-time data synchronization
-3. Ready to transition from Expo Go to a custom development client
+#### expo-image-picker Configuration
+- **iOS**: Requires photo library permission (configured in app.json)
+- **Android**: Uses system photo picker (no permissions needed for Android 13+)
+- **Web**: Uses browser file picker
 
-#### Migration Steps
+#### Avatar Upload Flow
+1. User taps "Change Photo" in Edit Profile
+2. System photo picker opens
+3. User selects/crops image (1:1 aspect ratio)
+4. Image uploaded to backend (max 5MB, JPEG/PNG/WebP)
+5. Profile updated with new photoURL
 
-Once you're ready to add Firebase native SDKs:
+### Friend Management
 
-1. **Install Firebase packages**:
-   ```bash
-   npm install @react-native-firebase/app @react-native-firebase/auth @react-native-firebase/firestore
-   ```
+#### Adding Friends
+1. Navigate to Friends → Add Friend
+2. Search by email address (debounced search)
+3. View search results with profile info
+4. Add friend (creates bidirectional friendship)
 
-2. **Build a custom development client**:
-   ```bash
-   # For Android
-   npx expo run:android
-   
-   # For iOS (macOS only)
-   npx expo run:ios
-   ```
+#### Privacy Features
+- **Email Search**: Exact match only, case-insensitive
+- **No Enumeration**: Returns null for non-existent users
+- **Debounced Search**: 300ms delay to reduce API calls
 
-3. **Or use EAS Build for development**:
-   ```bash
-   npx eas build --profile development --platform android
-   npx eas build --profile development --platform ios
-   ```
+### Validation Rules
 
-4. **Update Firebase configuration** in `.env` and initialize Firebase in your app.
+- **Display Name**: 2-50 characters, letters/spaces/hyphens/apostrophes only
+- **Height**: 50-300 cm range
+- **Weight**: 20-500 kg range
+- **Avatar**: Max 5MB, JPEG/PNG/WebP formats
+- **Email**: Valid email format for friend search
 
-5. **Test thoroughly** – Expo Go will no longer work; you must use the custom development client.
+### API Service
 
-**⚠️ Important**: After adding these packages, the app will **no longer run in Expo Go**. All developers will need to use a custom development client or EAS development build.
+Profile management is handled by `profile.service.ts`:
+- `updateProfile()`: Update profile fields
+- `uploadAvatar()`: Upload profile photo
+- `getFriends()`: Retrieve friend list
+- `searchUserByEmail()`: Search users by email
+- `addFriend()`: Add friend by email
+- `removeFriend()`: Remove friend by UID
+
+## Troubleshooting
+
+### Common Authentication Issues
+
+1. **AsyncStorage Warnings**: 
+   - Ensure `@react-native-async-storage/async-storage` is installed
+   - Clear app data/cache if persistence issues occur
+
+2. **Token Expiration**:
+   - Firebase tokens expire after 1 hour
+   - The app automatically refreshes tokens
+   - If issues persist, try logging out and back in
+
+3. **Network Errors**:
+   - Verify `BACKEND_API_URL` is correct
+   - Ensure backend is running and accessible
+   - Check Firebase project configuration
+
+4. **Firebase Configuration**:
+   - Double-check all Firebase environment variables
+   - Ensure Email/Password auth is enabled in Firebase Console
+   - Verify the Firebase project ID matches backend configuration
+
+5. **Login/Register Errors**:
+   - "User not found" - Check if account exists
+   - "Wrong password" - Verify credentials
+   - "Email already in use" - Account already exists
+   - "Weak password" - Use at least 8 characters
+
+### Image Picker Issues
+
+1. **Permission Denied**:
+   - iOS: Check Settings → Privacy → Photos
+   - Android: Check app permissions in Settings
+   - Restart app after granting permissions
+
+2. **Upload Failures**:
+   - Check file size (max 5MB)
+   - Verify file format (JPEG/PNG/WebP)
+   - Check network connection
+   - Ensure backend is running
+
+3. **Image Not Displaying**:
+   - Clear app cache
+   - Check photoURL in user profile
+   - Verify storage service is configured
+
+### Friend Search Issues
+
+1. **User Not Found**:
+   - Verify email is exact match
+   - Check if user has Gym-Mate account
+   - Email search is case-insensitive
+
+2. **Cannot Add Friend**:
+   - Cannot add yourself
+   - Check if already friends
+   - Verify user exists
+
+### Dependencies Installation Issues
+
+If you encounter issues with Firebase, AsyncStorage, or expo-image-picker:
+```bash
+# Clear cache and reinstall
+rm -rf node_modules
+npm cache clean --force
+npm install
+
+# For Expo-specific issues
+expo doctor --fix-dependencies
+
+# For expo-image-picker specifically
+npx expo install expo-image-picker
+```
