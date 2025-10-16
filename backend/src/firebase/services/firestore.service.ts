@@ -8,6 +8,7 @@ import {
   WhereFilterOp,
   DocumentData,
   UpdateData,
+  Transaction,
 } from 'firebase-admin/firestore';
 import { FIRESTORE } from '../firebase.tokens';
 
@@ -196,6 +197,20 @@ export class FirestoreService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to execute batch write: ${message}`);
+    }
+  }
+
+  /**
+   * Execute operations in a transaction for atomicity
+   * @param callback Function that receives the transaction and returns a promise
+   * @returns Promise<T> Result of the transaction callback
+   */
+  async runTransaction<T>(callback: (transaction: Transaction) => Promise<T>): Promise<T> {
+    try {
+      return await this.firestore.runTransaction(callback);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to execute transaction: ${message}`);
     }
   }
 }
