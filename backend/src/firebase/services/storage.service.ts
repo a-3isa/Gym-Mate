@@ -1,7 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { Storage, Bucket, File } from 'firebase-admin/storage';
-import { STORAGE } from '../firebase.module';
+import { Storage } from 'firebase-admin/storage';
+import type { Bucket, File } from '@google-cloud/storage';
+import { STORAGE } from '../firebase.tokens';
 
 /**
  * StorageService
@@ -22,7 +23,7 @@ export class StorageService {
    * @param buffer File buffer to upload
    * @param destination Destination path in storage
    * @param metadata File metadata
-   * @returns Promise<File> The uploaded file reference
+   * @returns Promise<{ file: File; downloadUrl: string; downloadToken?: string }> Upload result
    */
   async uploadFile(
     buffer: Buffer,
@@ -30,21 +31,64 @@ export class StorageService {
     metadata: {
       contentType: string;
       cacheControl?: string;
+      public?: boolean;
     },
-  ): Promise<File> {
+  ): Promise<{ file: File; downloadUrl: string; downloadToken?: string }> {
     try {
-      const file = this.bucket.file(destination);
+      const storageFile: File = this.bucket.file(destination);
+      const shouldBePublic = metadata.public ?? false;
+      let downloadToken: string | undefined;
 
-      await file.save(buffer, {
-        metadata: {
-          contentType: metadata.contentType,
-          cacheControl: metadata.cacheControl || 'private, max-age=0, no-store',
-        },
+      const metadataOptions: {
+        contentType: string;
+        cacheControl: string;
+        metadata?: Record<string, string>;
+      } = {
+        contentType: metadata.contentType,
+        cacheControl: metadata.cacheControl ?? 'public, max-age=31536000, immutable',
+      };
+
+      if (!shouldBePublic) {
+        downloadToken = randomUUID();
+        metadataOptions.metadata = {
+          firebaseStorageDownloadTokens: downloadToken,
+        };
+      }
+
+      await storageFile.save(buffer, {
+        metadata: metadataOptions,
       });
 
-      return file;
-    } catch (error) {
-      throw new Error(`Failed to upload file to ${destination}: ${error.message}`);
+      if (shouldBePublic) {
+        await storageFile.makePublic();
+      }
+
+      let signedUrl: string | undefined;
+
+      const isEmulator = !!(
+        process.env.FIREBASE_STORAGE_EMULATOR_HOST || process.env.STORAGE_EMULATOR_HOST
+      );
+
+      if (!shouldBePublic && !isEmulator) {
+        const [url] = await storageFile.getSignedUrl({ action: 'read', expires: '03-09-2491' });
+        signedUrl = url;
+      }
+
+      const downloadUrl = await this.getDownloadUrl(destination, {
+        isPublic: shouldBePublic,
+        downloadToken,
+        signedUrl,
+      });
+
+      return { file: storageFile, downloadUrl, downloadToken };
+    } catch (err: unknown) {
+      let message: string;
+      if (err instanceof Error) {
+        message = err.message;
+      } else {
+        message = String(err);
+      }
+      throw new Error(`Failed to upload file to ${destination}: ${message}`);
     }
   }
 
@@ -53,19 +97,51 @@ export class StorageService {
    * @param filePath Path to the file in storage
    * @returns Promise<string> Download URL
    */
-  async getDownloadUrl(filePath: string): Promise<string> {
+  getDownloadUrl(
+    filePath: string,
+    options: { isPublic?: boolean; downloadToken?: string; signedUrl?: string } = {},
+  ): Promise<string> {
     try {
-      const file = this.bucket.file(filePath);
+      const encodedPath = filePath
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/');
+      const rawEmulatorHost =
+        process.env.FIREBASE_STORAGE_EMULATOR_HOST || process.env.STORAGE_EMULATOR_HOST;
 
-      // Get signed URL with very long expiration (essentially permanent)
-      const [url] = await file.getSignedUrl({
-        action: 'read',
-        expires: '03-01-2500', // Far future date
-      });
+      if (options.signedUrl) {
+        return Promise.resolve(options.signedUrl);
+      }
 
-      return url;
-    } catch (error) {
-      throw new Error(`Failed to get download URL for ${filePath}: ${error.message}`);
+      if (rawEmulatorHost) {
+        const baseUrl = rawEmulatorHost.startsWith('http')
+          ? rawEmulatorHost
+          : `http://${rawEmulatorHost}`;
+        const emulatorUrl = `${baseUrl.replace(/\/$/, '')}/v0/b/${this.bucket.name}/o/${encodedPath}?alt=media`;
+        return Promise.resolve(
+          options.downloadToken ? `${emulatorUrl}&token=${options.downloadToken}` : emulatorUrl,
+        );
+      }
+
+      if (options.isPublic) {
+        return Promise.resolve(`https://storage.googleapis.com/${this.bucket.name}/${encodedPath}`);
+      }
+
+      if (options.downloadToken) {
+        return Promise.resolve(
+          `https://firebasestorage.googleapis.com/v0/b/${this.bucket.name}/o/${encodedPath}?alt=media&token=${options.downloadToken}`,
+        );
+      }
+
+      throw new Error(`Missing signed URL or download token for private file ${filePath}`);
+    } catch (err: unknown) {
+      let message: string;
+      if (err instanceof Error) {
+        message = err.message;
+      } else {
+        message = String(err);
+      }
+      throw new Error(`Failed to get download URL for ${filePath}: ${message}`);
     }
   }
 
@@ -76,10 +152,16 @@ export class StorageService {
    */
   async deleteFile(filePath: string): Promise<void> {
     try {
-      const file = this.bucket.file(filePath);
-      await file.delete();
-    } catch (error) {
-      throw new Error(`Failed to delete file ${filePath}: ${error.message}`);
+      const storageFile = this.bucket.file(filePath);
+      await storageFile.delete();
+    } catch (err: unknown) {
+      let message: string;
+      if (err instanceof Error) {
+        message = err.message;
+      } else {
+        message = String(err);
+      }
+      throw new Error(`Failed to delete file ${filePath}: ${message}`);
     }
   }
 
@@ -117,20 +199,24 @@ export class StorageService {
       const storagePath = `avatars/${userId}/${version}-${uniqueSuffix}.${extension}`;
 
       // Upload the file with appropriate metadata
-      const file = await this.uploadFile(buffer, storagePath, {
+      const { downloadUrl } = await this.uploadFile(buffer, storagePath, {
         contentType: mimetype,
-        cacheControl: 'private, max-age=0, no-store',
+        cacheControl: 'public, max-age=31536000, immutable',
+        public: false,
       });
-
-      // Get the download URL
-      const downloadUrl = await this.getDownloadUrl(storagePath);
 
       return {
         storagePath,
         downloadUrl,
       };
-    } catch (error) {
-      throw new Error(`Failed to upload avatar for user ${userId}: ${error.message}`);
+    } catch (err: unknown) {
+      let message: string;
+      if (err instanceof Error) {
+        message = err.message;
+      } else {
+        message = String(err);
+      }
+      throw new Error(`Failed to upload avatar for user ${userId}: ${message}`);
     }
   }
 

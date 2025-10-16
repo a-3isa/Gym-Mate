@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { HealthCheckService, HealthCheck, MemoryHealthIndicator } from '@nestjs/terminus';
 import { HealthService } from './health.service';
+import { FirestoreHealthIndicator } from './firestore.health';
 
 /**
  * HealthController
@@ -13,6 +14,7 @@ export class HealthController {
     private healthCheckService: HealthCheckService,
     private memoryHealthIndicator: MemoryHealthIndicator,
     private healthService: HealthService,
+    private firestoreHealthIndicator: FirestoreHealthIndicator,
   ) {}
 
   @Get()
@@ -21,20 +23,8 @@ export class HealthController {
     return this.healthCheckService.check([
       () =>
         this.memoryHealthIndicator.checkHeap('memory_heap', this.healthService.getHeapLimitBytes()),
-      // Firebase health check - verifies Firestore connectivity
-      async () => {
-        try {
-          return await this.healthService.checkFirestore();
-        } catch (error) {
-          // Return unhealthy status if Firebase check fails
-          return {
-            firestore: {
-              status: 'down',
-              error: 'Firebase health check failed',
-            },
-          };
-        }
-      },
+      // Firebase health check - verifies Firestore connectivity using standardized HealthIndicator
+      () => this.firestoreHealthIndicator.isHealthy('firestore'),
     ]);
   }
 }

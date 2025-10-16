@@ -52,11 +52,147 @@ Backend API for the Gym-Mate application.
 - `src/websocket/`: Socket.IO gateway for real-time communication
   - `dto/`: WebSocket Data Transfer Objects
 
+## Authentication
+
+The backend uses Firebase Admin SDK to verify ID tokens sent by mobile clients. Authentication is required for most API endpoints and WebSocket connections.
+
+### How It Works
+
+1. **Token Verification**: The backend verifies Firebase ID tokens sent in the `Authorization` header as `Bearer <token>`
+2. **Guard Usage**: Protected endpoints use `@UseGuards(FirebaseAuthGuard)` to enforce authentication
+3. **User Access**: Controllers use `@CurrentUser()` decorator to access authenticated user information
+4. **Profile Management**: User profiles are automatically created in Firestore on first authenticated request
+
+### WebSocket Authentication
+
+WebSocket clients must provide a Firebase ID token during connection:
+- **Query Parameter**: `?token=<Firebase ID Token>`
+- **Header**: `Authorization: Bearer <token>`
+
+If authentication fails, the WebSocket connection will be terminated.
+
+### Security Best Practices
+
+- **Token Expiration**: Firebase ID tokens expire after 1 hour. Clients should implement token refresh
+- **HTTPS Required**: Always use HTTPS in production to prevent token interception
+- **Token Refresh**: Mobile apps should refresh tokens on 401 responses
+
 ## API Documentation
 
 ### Health Check
 
 - **GET** `/api/health`: Check the health of the application
+
+### Authentication Endpoints
+
+- **GET** `/api/auth/me`: Get or create authenticated user profile
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Response**:
+    ```json
+    {
+      "uid": "user123",
+      "email": "user@example.com",
+      "displayName": "John Doe",
+      "photoURL": "https://...",
+      "height": 180,
+      "weight": 75,
+      "friends": [],
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
+    ```
+  - **Note**: This endpoint creates a user profile in Firestore on first login
+
+### Profile Management
+
+- **PATCH** `/api/auth/profile`: Update user profile
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Request Body** (UpdateProfileDto):
+    ```json
+    {
+      "displayName": "John Doe",  // Optional, 2-50 chars, letters/spaces/hyphens/apostrophes
+      "height": 180,              // Optional, 50-300 cm
+      "weight": 75                // Optional, 20-500 kg
+    }
+    ```
+  - **Response**: Updated User object
+  - **Validation**:
+    - displayName: 2-50 characters, only letters, spaces, hyphens, and apostrophes
+    - height: 50-300 cm
+    - weight: 20-500 kg
+
+- **POST** `/api/auth/avatar`: Upload user avatar
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Content-Type**: `multipart/form-data`
+  - **Form Data**:
+    - `avatar`: Image file (JPEG, PNG, or WebP)
+  - **Constraints**:
+    - Max file size: 5MB
+    - Accepted formats: JPEG, PNG, WebP
+  - **Response**: Updated User object with new photoURL
+  - **Errors**:
+    - 400: File size exceeds limit or invalid format
+    - 500: Upload failed
+
+### Friend Management
+
+- **GET** `/api/auth/search?email={email}`: Search for user by email
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Query Parameters**:
+    - `email`: Email address to search (required)
+  - **Response**: User object if found, null otherwise
+  - **Notes**:
+    - Case-insensitive exact match using the stored `emailLower` field
+    - Returns null (not 404) to prevent email enumeration
+    - Rate limiting should be implemented in production
+    - Consider backfilling legacy user documents missing `emailLower`
+
+- **GET** `/api/auth/friends`: Get list of friends
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Response**: Array of User objects
+    ```json
+    [
+      {
+        "uid": "friend123",
+        "email": "friend@example.com",
+        "displayName": "Jane Smith",
+        "photoURL": "https://...",
+        "height": 165,
+        "weight": 60
+      }
+    ]
+    ```
+
+- **POST** `/api/auth/friends`: Add a friend
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Request Body** (AddFriendDto):
+    ```json
+    {
+      "email": "friend@example.com"
+    }
+    ```
+  - **Response**:
+    ```json
+    {
+      "message": "Friend added successfully",
+      "friends": ["uid1", "uid2", ...]
+    }
+    ```
+  - **Errors**:
+    - 400: Cannot add yourself as a friend
+    - 404: User not found
+    - 409: Already friends with this user
+
+- **DELETE** `/api/auth/friends/{friendUid}`: Remove a friend
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Path Parameters**:
+    - `friendUid`: UID of the friend to remove
+  - **Response**:
+    ```json
+    {
+      "message": "Friend removed successfully"
+    }
+    ```
 
 ## Firebase Setup
 
@@ -100,6 +236,13 @@ For local development without consuming Firebase quota:
 
 5. Access Emulator UI at http://localhost:4000
 
+### Storage Rules
+
+- **Rules file**: Defined at `storage.rules` and deployed with `firebase deploy --only storage:rules`.
+- **Access model**: `StorageService` uploads avatar objects as private by default. Private files receive long-lived signed URLs in production and tokenized download URLs when running against emulators.
+- **Emulator URLs**: When `STORAGE_EMULATOR_HOST` or `FIREBASE_STORAGE_EMULATOR_HOST` is set, download URLs follow `http://<host>/v0/b/<bucket>/o/<path>?alt=media[&token=...]`.
+- **Scope**: Avatars live under `avatars/{uid}/...`; authenticated users can only access their own subtree.
+
 ## WebSocket Configuration
 
 ### Socket.IO Namespace
@@ -109,9 +252,16 @@ The application uses Socket.IO with the `/sessions` namespace for real-time work
 ### Connecting from Clients
 
 ```javascript
+// First, get the Firebase ID token
+const idToken = await firebase.auth().currentUser.getIdToken();
+
+// Then connect with authentication
 const socket = io('http://localhost:3000/sessions', {
   transports: ['websocket'],
-  upgrade: false
+  upgrade: false,
+  query: {
+    token: idToken
+  }
 });
 ```
 
@@ -146,7 +296,20 @@ const socket = io('http://localhost:3000/sessions', {
 - `session:leave` - Broadcast when user leaves
 - `set:complete` - Broadcast completed set data
 - `turn:change` - Broadcast turn change
-- `error` - Error notifications
+- `server:error` - Error notifications
+
+## Validation
+
+### UpdateProfileDto
+Used for profile updates with the following validation rules:
+- **displayName**: Optional string, 2-50 characters, only letters, spaces, hyphens, and apostrophes
+- **height**: Optional number, 50-300 cm range
+- **weight**: Optional number, 20-500 kg range
+- **photoURL**: System-set after avatar upload
+
+### AddFriendDto
+Used for adding friends by email:
+- **email**: Required, valid email format
 
 ## Firestore Collections
 
@@ -155,15 +318,18 @@ const socket = io('http://localhost:3000/sessions', {
 {
   uid: string,              // Firebase Auth UID
   email: string,
+  emailLower?: string,      // Lowercased email for case-insensitive search
   displayName: string,
-  photoURL?: string,        // Avatar URL
-  height?: number,          // cm
-  weight?: number,          // kg
+  photoURL?: string,        // Avatar URL from Storage
+  height?: number,          // Height in cm (50-300)
+  weight?: number,          // Weight in kg (20-500)
   createdAt: Timestamp,
   updatedAt: Timestamp,
-  friends?: string[]        // Array of UIDs
+  friends?: string[]        // Array of friend UIDs
 }
 ```
+
+> Keep `participantUids` in sync with `participants.map(p => p.uid)` during create/update flows. A future helper may populate this automatically to avoid divergence.
 
 ### Exercises Collection (`/exercises/{exerciseId}`)
 ```typescript
@@ -185,6 +351,7 @@ const socket = io('http://localhost:3000/sessions', {
 {
   id: string,
   participants: SessionParticipant[],  // Max 2 for Phase 1
+  participantUids: string[], // required for access checks and array-contains queries
   exercises: SessionExercise[],
   status: 'pending' | 'active' | 'completed' | 'cancelled',
   currentTurn: string,                 // Active participant UID
@@ -202,7 +369,7 @@ const socket = io('http://localhost:3000/sessions', {
 {
   uid: string,
   bodyMetricsHistory: BodyMetrics[],
-  exerciseProgress: Map<string, ExerciseProgress>,
+  exerciseProgress: Record<string, ExerciseProgress>, // serializable map keyed by exerciseId
   workoutHistory: WorkoutSummary[],
   totalWorkouts: number,
   currentStreak: number,
@@ -210,6 +377,8 @@ const socket = io('http://localhost:3000/sessions', {
   updatedAt: Timestamp
 }
 ```
+
+`exerciseProgress` is stored as a plain object so Firestore can serialize it without custom converters.
 
 ## Environment Variables
 
@@ -227,8 +396,7 @@ const socket = io('http://localhost:3000/sessions', {
   - `FIREBASE_AUTH_EMULATOR_HOST`: Auth emulator host
   - `FIREBASE_STORAGE_EMULATOR_HOST`: Storage emulator host
 - **WebSocket Configuration:**
-  - `WEBSOCKET_PORT`: WebSocket port (optional, defaults to HTTP port)
-  - `WEBSOCKET_CORS_ORIGIN`: Allowed WebSocket origins
+  - `WEBSOCKET_CORS_ORIGIN`: Allowed WebSocket origins (comma-separated)
 
 ### CORS Configuration
 
@@ -306,6 +474,8 @@ firebase deploy --only firestore:rules
 firebase deploy --only firestore:indexes
 firebase deploy --only storage:rules
 ```
+
+**Note**: Before deploying, update `.firebaserc` with your actual Firebase project ID from Firebase Console.
 
 ## Git Hooks
 

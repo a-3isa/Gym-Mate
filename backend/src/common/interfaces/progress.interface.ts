@@ -121,7 +121,7 @@ export interface UserProgress {
   /**
    * Map of exerciseId to progress data
    */
-  exerciseProgress: Map<string, ExerciseProgress>;
+  exerciseProgress: Record<string, ExerciseProgress>;
 
   /**
    * Array of workout summary references

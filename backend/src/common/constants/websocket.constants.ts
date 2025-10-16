@@ -62,5 +62,5 @@ export const SOCKET_EVENTS = {
    * Emitted when an error occurs
    * Payload: { message: string, code?: string }
    */
-  ERROR: 'error',
+  ERROR: 'server:error',
 } as const;

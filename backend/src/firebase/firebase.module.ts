@@ -1,17 +1,19 @@
 import { Module, Global, OnModuleDestroy } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { initializeApp, getApps, getApp, deleteApp, App } from 'firebase-admin/app';
+import {
+  initializeApp,
+  getApps,
+  getApp,
+  deleteApp,
+  App,
+  cert,
+  applicationDefault,
+} from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { getStorage, Storage } from 'firebase-admin/storage';
 import { getAuth, Auth } from 'firebase-admin/auth';
-import { credential } from 'firebase-admin';
 import { FirestoreService, StorageService, AuthService } from './services';
-
-// Provider tokens
-export const FIREBASE_APP = 'FIREBASE_APP';
-export const FIRESTORE = 'FIRESTORE';
-export const STORAGE = 'STORAGE';
-export const AUTH = 'AUTH';
+import { FIREBASE_APP, FIRESTORE, STORAGE, AUTH } from './firebase.tokens';
 
 /**
  * Firebase Module
@@ -69,7 +71,7 @@ export const AUTH = 'AUTH';
         if (projectId && clientEmail && privateKey) {
           // Credential-based initialization
           app = initializeApp({
-            credential: credential.cert({
+            credential: cert({
               projectId,
               clientEmail,
               privateKey,
@@ -80,6 +82,7 @@ export const AUTH = 'AUTH';
           // Application Default Credentials (ADC) mode
           // Used in cloud environments where credentials are automatically provided
           app = initializeApp({
+            credential: applicationDefault(),
             projectId,
             storageBucket,
           });

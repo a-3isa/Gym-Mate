@@ -15,17 +15,21 @@ export default () => ({
   firebase: {
     projectId: process.env.FIREBASE_PROJECT_ID,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'), // Handle escaped newlines
+    privateKey: (() => {
+      const rawKey = process.env.FIREBASE_PRIVATE_KEY;
+      const cleaned = rawKey?.replace(/^"|"$/g, '').replace(/\\n/g, '\n');
+      return cleaned;
+    })(),
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
   },
   emulators: {
     firestoreHost: process.env.FIRESTORE_EMULATOR_HOST,
     authHost: process.env.FIREBASE_AUTH_EMULATOR_HOST,
-    storageHost: process.env.STORAGE_EMULATOR_HOST ?? process.env.FIREBASE_STORAGE_EMULATOR_HOST,
+    storageHost: process.env.FIREBASE_STORAGE_EMULATOR_HOST,
   },
   websocket: {
-    port: parseNumber(process.env.WEBSOCKET_PORT, parseNumber(process.env.PORT, 3000)),
     corsOrigin: process.env.WEBSOCKET_CORS_ORIGIN || process.env.CORS_ALLOWED_ORIGINS || '*',
+    port: process.env.WEBSOCKET_PORT ? parseInt(process.env.WEBSOCKET_PORT, 10) : undefined,
   },
   // database: {
   //   url: process.env.DATABASE_URL,

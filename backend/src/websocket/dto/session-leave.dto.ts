@@ -1,5 +1,9 @@
 import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
+/**
+ * SessionLeaveDto
+ * Payload for session:leave event.
+ */
 export class SessionLeaveDto {
   @IsString()
   @IsNotEmpty()
@@ -7,6 +11,5 @@ export class SessionLeaveDto {
 
   @IsOptional()
   @IsString()
-  @IsNotEmpty()
   userId?: string;
 }

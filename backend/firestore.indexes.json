@@ -1,8 +1,7 @@
 {
   "indexes": [
     {
-      "collectionGroup": "sessions",
-      "queryScope": "COLLECTION",
+      "collectionId": "sessions",
       "fields": [
         {
           "fieldPath": "participantUids",
@@ -15,8 +14,7 @@
       ]
     },
     {
-      "collectionGroup": "sessions",
-      "queryScope": "COLLECTION",
+      "collectionId": "sessions",
       "fields": [
         {
           "fieldPath": "status",
@@ -29,8 +27,7 @@
       ]
     },
     {
-      "collectionGroup": "progress",
-      "queryScope": "COLLECTION",
+      "collectionId": "progress",
       "fields": [
         {
           "fieldPath": "uid",

@@ -1,54 +1,38 @@
 import { INestApplicationContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import { ServerOptions } from 'socket.io';
+import { Server, ServerOptions } from 'socket.io';
 
 export class ConfiguredSocketIoAdapter extends IoAdapter {
-  constructor(private readonly appContext: INestApplicationContext) {
-    super(appContext);
+  private readonly configService: ConfigService;
+
+  constructor(app: INestApplicationContext) {
+    super(app);
+    this.configService = app.get(ConfigService);
   }
 
-  createIOServer(port: number, options?: ServerOptions) {
-    const configService = this.appContext.get(ConfigService);
+  createIOServer(port: number, options?: ServerOptions): Server {
+    const corsOrigin = this.configService.get<string>('websocket.corsOrigin') || '*';
+    const wsPort = this.configService.get<number>('websocket.port') ?? port;
 
-    const configuredOrigin =
-      configService.get<string>('websocket.corsOrigin') ??
-      process.env.WEBSOCKET_CORS_ORIGIN ??
-      configService.get<string>('cors.allowedOrigins') ??
-      process.env.CORS_ALLOWED_ORIGINS ??
-      '*';
+    const resolvedOrigins =
+      corsOrigin === '*'
+        ? '*'
+        : corsOrigin
+            .split(',')
+            .map((origin) => origin.trim())
+            .filter(Boolean);
 
-    const normalizedOrigin = configuredOrigin.trim();
+    const isWildcardOrigin = resolvedOrigins === '*';
 
-    const parsedOrigins = normalizedOrigin
-      .split(',')
-      .map((origin) => origin.trim())
-      .filter(Boolean);
-
-    const allowsAnyOrigin =
-      normalizedOrigin === '*' || parsedOrigins.includes('*') || parsedOrigins.length === 0;
-
-    const resolvedOrigin = allowsAnyOrigin
-      ? '*'
-      : parsedOrigins.length === 1
-        ? parsedOrigins[0]
-        : parsedOrigins;
-
-    const corsOptions = {
-      origin: resolvedOrigin,
-      credentials: !allowsAnyOrigin,
-    } as NonNullable<ServerOptions['cors']>;
-
-    const serverOptions: ServerOptions = {
+    const server = super.createIOServer(wsPort, {
       ...options,
       cors: {
-        ...(options?.cors ?? {}),
-        ...corsOptions,
+        origin: resolvedOrigins,
+        credentials: !isWildcardOrigin,
       },
-    };
+    }) as Server;
 
-    const configuredPort = configService.get<number>('websocket.port');
-
-    return super.createIOServer(configuredPort ?? port, serverOptions);
+    return server;
   }
 }
