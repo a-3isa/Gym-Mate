@@ -53,4 +53,36 @@ export interface User {
    * Array of UIDs for friend relationships (optional)
    */
   friends?: string[];
+
+  /**
+   * Avatar level (1-50) representing overall progression
+   * Default: 1, increases based on XP accumulation from workouts
+   */
+  avatarLevel?: number;
+
+  /**
+   * Total experience points accumulated from workouts
+   * Used to calculate avatar level and progression
+   */
+  avatarXP?: number;
+
+  /**
+   * Muscle group development levels (1-10) for each body part
+   * Each muscle group evolves independently based on targeted exercises
+   * Higher levels represent greater muscle definition/size in avatar rendering
+   */
+  avatarMuscleGroups?: {
+    chest: number;
+    back: number;
+    legs: number;
+    shoulders: number;
+    arms: number;
+    core: number;
+  };
+
+  /**
+   * Timestamp of the last avatar level-up event
+   * Used for triggering evolution notifications and tracking progression milestones
+   */
+  lastEvolution?: Timestamp;
 }

@@ -23,6 +23,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import * as multer from 'multer';
 import { AuthService } from './auth.service';
 import { StorageService } from '../firebase/services/storage.service';
+import { AvatarService } from '../progress';
 import { FirebaseAuthGuard } from '../common/guards/firebase-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User } from '../common/interfaces/user.interface';
@@ -42,6 +43,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly storageService: StorageService,
+    private readonly avatarService: AvatarService,
   ) {}
 
   /**
@@ -357,6 +359,32 @@ export class AuthController {
       this.logger.error(`Failed to remove friend for user ${user.uid}: ${message}`);
 
       throw new HttpException('Failed to remove friend', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  /**
+   * Get the calculated avatar state for the authenticated user.
+   * Returns avatar level, XP, muscle groups, and progression metrics.
+   * This endpoint is optimized for performance by calculating avatar state
+   * separately from the full user profile.
+   *
+   * @param user - The authenticated user information
+   * @returns The calculated avatar state including level, XP, and muscle groups
+   */
+  @Get('avatar')
+  @UseGuards(FirebaseAuthGuard)
+  async getAvatarState(@CurrentUser() user: { uid: string }) {
+    try {
+      this.logger.debug(`Getting avatar state for user ${user.uid}`);
+
+      const avatarState = await this.avatarService.calculateAvatarState(user.uid);
+
+      return avatarState;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to get avatar state for user ${user.uid}: ${message}`);
+
+      throw new HttpException('Failed to retrieve avatar state', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

@@ -5,6 +5,9 @@ import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/nativ
 import { getSessionById, recordSet, switchTurn, completeSession } from '../../services/api/session.service';
 import { Session, SessionExercise, SetRecord } from '../../types/models';
 import useAuth from '../../hooks/useAuth';
+import useAvatar from '../../hooks/useAvatar';
+import AvatarDisplay from '../../components/avatar/AvatarDisplay';
+import AvatarEvolutionModal from '../../components/avatar/AvatarEvolutionModal';
 import { SPACING, SOCKET_EVENTS, TIMERS } from '../../utils/constants';
 import useSessionSocket from '../../hooks/useSessionSocket';
 import useTimer from '../../hooks/useTimer';
@@ -20,6 +23,7 @@ const ActiveSessionScreen = () => {
   const route = useRoute<SessionsStackRouteProp<'ActiveSession'>>();
   const { sessionId } = route.params;
   const { user } = useAuth();
+  const { avatarState, refreshAvatar } = useAvatar();
   
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,12 +32,20 @@ const ActiveSessionScreen = () => {
   const [currentWeight, setCurrentWeight] = useState('');
   const [currentReps, setCurrentReps] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [showEvolutionModal, setShowEvolutionModal] = useState(false);
+  const [evolutionData, setEvolutionData] = useState<{
+    previousLevel: number;
+    newLevel: number;
+    muscleGroupsGained: string[];
+  } | null>(null);
   const { connect: socketConnect, disconnect: socketDisconnect, on, off, emit } = useSessionSocket();
   const isFetchingRef = useRef(false);
   const completedRef = useRef(false);
   const [restTimerStartedBy, setRestTimerStartedBy] = useState<string | null>(null);
   const [workoutTimerStartedBy, setWorkoutTimerStartedBy] = useState<string | null>(null);
   const lastStartIntentRef = useRef<{ timerType: string; timestamp: number } | null>(null);
+  const lastStopIntentRef = useRef<{ timerType: string; timestamp: number } | null>(null);
+  const preLevelRef = useRef<number | null>(null);
 
   const restTimer = useTimer(TIMERS.DEFAULT_REST_DURATION, () => {
     // Optional auto progression: notify stop and optionally switch turn via REST
@@ -78,20 +90,26 @@ const ActiveSessionScreen = () => {
     const onWeightUpdate = (_payload: any) => {
       // Non-authoritative hint for external consumers
     };
-    const onTurnChange = (_payload: any) => {
-      // Feedback only; authoritative update arrives via session:update
-    };
     const onExerciseChange = (payload: any) => {
       // Optimistic update for immediate UI feedback
       if (payload?.sessionId === sessionId && typeof payload?.exerciseIndex === 'number') {
         setSession(prev => prev ? { ...prev, currentExerciseIndex: payload.exerciseIndex } : null);
       }
     };
-    const onSessionEnd = () => {
+    const onSessionEnd = async () => {
       if (completedRef.current) return; // Prevent double navigation
       completedRef.current = true;
+      
+      // Check for avatar level-up after session completion
+      const previousLevel = avatarState?.level || 1;
+      await refreshAvatar();
+      // Will check new level after refresh in a separate effect
+      
       Alert.alert('Session Completed', 'This workout has ended.');
-      navigation.navigate('Sessions');
+      // Navigation will happen after evolution modal if needed
+      if (!showEvolutionModal) {
+        navigation.navigate('Sessions');
+      }
     };
     const onSessionStart = () => {
       // Optional feedback; UI derives from session:update
@@ -102,7 +120,7 @@ const ActiveSessionScreen = () => {
         if (payload.startedBy === user?.uid && restTimer.isActive) {
           return;
         }
-        setRestTimerStartedBy(payload.startedBy);
+        setRestTimerStartedBy(payload.startedBy ?? null);
         restTimer.reset();
         restTimer.sync(payload.duration);
         restTimer.start();
@@ -111,7 +129,7 @@ const ActiveSessionScreen = () => {
         if (payload.startedBy === user?.uid && workoutTimer.isActive) {
           return;
         }
-        setWorkoutTimerStartedBy(payload.startedBy);
+        setWorkoutTimerStartedBy(payload.startedBy ?? null);
         workoutTimer.reset();
         workoutTimer.sync(payload.duration);
         workoutTimer.start();
@@ -127,8 +145,22 @@ const ActiveSessionScreen = () => {
     const onTimerStop = (payload: any) => {
       if (payload?.timerType === 'rest') {
         restTimer.stop();
+        setRestTimerStartedBy(null);
       } else if (payload?.timerType === 'workout') {
         workoutTimer.stop();
+        setWorkoutTimerStartedBy(null);
+      }
+      lastStopIntentRef.current = null;
+    };
+    const onAvatarEvolution = (payload: any) => {
+      // Handle avatar evolution event for current user
+      if (payload?.userId === user?.uid && payload?.previousLevel && payload?.newLevel) {
+        setEvolutionData({
+          previousLevel: payload.previousLevel,
+          newLevel: payload.newLevel,
+          muscleGroupsGained: payload.muscleGroupsGained || [],
+        });
+        setShowEvolutionModal(true);
       }
     };
     const onError = (err: any) => {
@@ -136,7 +168,7 @@ const ActiveSessionScreen = () => {
       if (err?.code === 'TIMER_ALREADY_ACTIVE' && lastStartIntentRef.current) {
         const { timerType } = lastStartIntentRef.current;
         const now = Date.now();
-        
+
         // Check if this error is recent (within 2 seconds of start intent)
         if (now - lastStartIntentRef.current.timestamp < 2000) {
           if (timerType === 'rest' && restTimer.isActive) {
@@ -148,32 +180,47 @@ const ActiveSessionScreen = () => {
           }
         }
         lastStartIntentRef.current = null;
+        return;
+      }
+
+      if (err?.code === 'TIMER_STOP_ERROR' && lastStopIntentRef.current) {
+        const { timerType } = lastStopIntentRef.current;
+        const now = Date.now();
+
+        if (now - lastStopIntentRef.current.timestamp < 2000) {
+          if (timerType === 'rest' && !restTimer.isActive) {
+            restTimer.start();
+          } else if (timerType === 'workout' && !workoutTimer.isActive) {
+            workoutTimer.start();
+          }
+        }
+        lastStopIntentRef.current = null;
       }
     };
 
     on(SOCKET_EVENTS.SESSION_UPDATE, onSessionUpdate);
     on(SOCKET_EVENTS.SET_COMPLETE, onSetComplete);
     on(SOCKET_EVENTS.WEIGHT_UPDATE, onWeightUpdate);
-    on(SOCKET_EVENTS.TURN_CHANGE, onTurnChange);
     on(SOCKET_EVENTS.EXERCISE_CHANGE, onExerciseChange);
     on(SOCKET_EVENTS.SESSION_END, onSessionEnd);
     on(SOCKET_EVENTS.SESSION_START, onSessionStart);
     on(SOCKET_EVENTS.TIMER_START, onTimerStart);
     on(SOCKET_EVENTS.TIMER_SYNC, onTimerSync);
     on(SOCKET_EVENTS.TIMER_STOP, onTimerStop);
+    on(SOCKET_EVENTS.AVATAR_EVOLUTION, onAvatarEvolution);
     on(SOCKET_EVENTS.ERROR, onError);
 
     return () => {
       off(SOCKET_EVENTS.SESSION_UPDATE, onSessionUpdate);
       off(SOCKET_EVENTS.SET_COMPLETE, onSetComplete);
       off(SOCKET_EVENTS.WEIGHT_UPDATE, onWeightUpdate);
-      off(SOCKET_EVENTS.TURN_CHANGE, onTurnChange);
       off(SOCKET_EVENTS.EXERCISE_CHANGE, onExerciseChange);
       off(SOCKET_EVENTS.SESSION_END, onSessionEnd);
       off(SOCKET_EVENTS.SESSION_START, onSessionStart);
       off(SOCKET_EVENTS.TIMER_START, onTimerStart);
       off(SOCKET_EVENTS.TIMER_SYNC, onTimerSync);
       off(SOCKET_EVENTS.TIMER_STOP, onTimerStop);
+      off(SOCKET_EVENTS.AVATAR_EVOLUTION, onAvatarEvolution);
       off(SOCKET_EVENTS.ERROR, onError);
       socketDisconnect();
     };
@@ -244,14 +291,13 @@ const ActiveSessionScreen = () => {
       sessionId,
       timerType: 'rest',
       duration: TIMERS.DEFAULT_REST_DURATION,
-      startedBy: user?.uid,
     });
   }, [emit, sessionId, user?.uid]);
 
   const startWorkoutTimer = useCallback(() => {
     // Track start intent for error handling
     lastStartIntentRef.current = { timerType: 'workout', timestamp: Date.now() };
-    
+
     setWorkoutTimerStartedBy(user?.uid || null);
     workoutTimer.reset();
     workoutTimer.start();
@@ -259,7 +305,6 @@ const ActiveSessionScreen = () => {
       sessionId,
       timerType: 'workout',
       duration: TIMERS.DEFAULT_WORKOUT_DURATION,
-      startedBy: user?.uid,
     });
   }, [emit, sessionId, user?.uid]);
 
@@ -299,14 +344,21 @@ const ActiveSessionScreen = () => {
   }, [emit, sessionId, user?.uid]);
 
   const stopRestTimer = useCallback(() => {
+    lastStopIntentRef.current = { timerType: 'rest', timestamp: Date.now() };
     restTimer.stop();
     emit(SOCKET_EVENTS.TIMER_STOP, { sessionId, timerType: 'rest' });
   }, [emit, sessionId]);
 
   const stopWorkoutTimer = useCallback(() => {
+    if (workoutTimerStartedBy && workoutTimerStartedBy !== user?.uid) {
+      Alert.alert('Timer', 'Only the participant who started the workout timer can stop it.');
+      return;
+    }
+
+    lastStopIntentRef.current = { timerType: 'workout', timestamp: Date.now() };
     workoutTimer.stop();
     emit(SOCKET_EVENTS.TIMER_STOP, { sessionId, timerType: 'workout' });
-  }, [emit, sessionId]);
+  }, [emit, sessionId, user?.uid, workoutTimerStartedBy]);
 
   /**
    * Skips turn to partner
@@ -347,8 +399,18 @@ const ActiveSessionScreen = () => {
           onPress: async () => {
             try {
               completedRef.current = true; // Set flag to prevent double navigation
+              const previousLevel = avatarState?.level || 1;
+              
               await completeSession(sessionId);
-              navigation.navigate('Sessions');
+              await refreshAvatar();
+              
+              // Check if level increased
+              // The actual level check will be done in a separate effect
+              setTimeout(() => {
+                if (!showEvolutionModal) {
+                  navigation.navigate('Sessions');
+                }
+              }, 500);
             } catch (error) {
               completedRef.current = false; // Reset flag on error
               Alert.alert('Error', 'Failed to complete session');
@@ -358,7 +420,30 @@ const ActiveSessionScreen = () => {
         },
       ]
     );
-  }, [sessionId, navigation]);
+  }, [sessionId, navigation, avatarState, refreshAvatar, showEvolutionModal]);
+
+  // Check for level-up after avatar refresh
+  useEffect(() => {
+    if (avatarState && completedRef.current && preLevelRef.current !== null) {
+      const previousLevel = preLevelRef.current;
+      
+      if (avatarState.level > previousLevel) {
+        setEvolutionData({
+          previousLevel,
+          newLevel: avatarState.level,
+          muscleGroupsGained: [], // Could be enhanced to track specific muscle gains
+        });
+        setShowEvolutionModal(true);
+      }
+    }
+  }, [avatarState]);
+
+  // Store initial level when session starts
+  useEffect(() => {
+    if (avatarState && !completedRef.current && preLevelRef.current === null) {
+      preLevelRef.current = avatarState.level;
+    }
+  }, [avatarState]);
 
   /**
    * Calculates overall progress
@@ -420,7 +505,17 @@ const ActiveSessionScreen = () => {
       <Card style={styles.card}>
         <Card.Content>
           <View style={styles.headerRow}>
-            <Text variant="titleLarge">Workout with {partner?.displayName}</Text>
+            {/* Show avatar next to partner name */}
+            <View style={styles.participantRow}>
+              {avatarState && (
+                <AvatarDisplay 
+                  muscleGroups={avatarState.muscleGroups} 
+                  size={48} 
+                  style={styles.smallAvatar}
+                />
+              )}
+              <Text variant="titleLarge">Workout with {partner?.displayName}</Text>
+            </View>
           </View>
           <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
             Exercise {session.currentExerciseIndex + 1} of {session.exercises.length}
@@ -569,6 +664,28 @@ const ActiveSessionScreen = () => {
           </Dialog.Actions>
         </Dialog>
       </Portal>
+
+      {/* Avatar Evolution Modal */}
+      {evolutionData && (
+        <AvatarEvolutionModal
+          visible={showEvolutionModal}
+          onDismiss={() => {
+            setShowEvolutionModal(false);
+            navigation.navigate('Sessions');
+          }}
+          previousLevel={evolutionData.previousLevel}
+          newLevel={evolutionData.newLevel}
+          muscleGroups={avatarState?.muscleGroups || {
+            chest: 1,
+            back: 1,
+            legs: 1,
+            shoulders: 1,
+            arms: 1,
+            core: 1,
+          }}
+          muscleGroupsGained={evolutionData.muscleGroupsGained}
+        />
+      )}
     </ScrollView>
   );
 };
@@ -589,7 +706,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: SPACING.xs,
+    marginBottom: SPACING.sm,
+  },
+  participantRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  smallAvatar: {
+    marginRight: SPACING.xs,
   },
   progressBar: {
     marginTop: SPACING.sm,

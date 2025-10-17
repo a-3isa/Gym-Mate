@@ -4,6 +4,46 @@
 export type SessionStatus = 'pending' | 'active' | 'completed' | 'cancelled';
 
 /**
+ * Muscle groups interface representing muscle development levels
+ * Each muscle group has a level from 1-10 representing definition/size
+ */
+export interface MuscleGroups {
+  chest: number;
+  back: number;
+  legs: number;
+  shoulders: number;
+  arms: number;
+  core: number;
+}
+
+/**
+ * Avatar state interface representing calculated avatar progression
+ * Matches the backend AvatarState structure
+ */
+export interface AvatarState {
+  /** Avatar level (1-50) representing overall progression */
+  level: number;
+  
+  /** Current experience points accumulated */
+  xp: number;
+  
+  /** Experience points required to reach the next level */
+  xpToNextLevel: number;
+  
+  /** Individual muscle group development levels (1-10) */
+  muscleGroups: MuscleGroups;
+  
+  /** Total number of completed workouts */
+  totalWorkouts: number;
+  
+  /** Current consecutive workout day streak */
+  currentStreak: number;
+  
+  /** Timestamp of the last avatar state calculation */
+  lastUpdated: Date | string | { seconds: number; nanoseconds: number };
+}
+
+/**
  * User interface matching the backend User structure.
  * Represents a user profile stored in Firestore.
  */
@@ -34,6 +74,18 @@ export interface User {
   
   /** Array of friend UIDs (optional) */
   friends?: string[];
+  
+  /** Avatar level (1-50) representing overall progression */
+  avatarLevel?: number;
+  
+  /** Total experience points accumulated from workouts */
+  avatarXP?: number;
+  
+  /** Muscle group development levels (1-10) for each body part */
+  avatarMuscleGroups?: MuscleGroups;
+  
+  /** Timestamp of the last avatar level-up event */
+  lastEvolution?: Date | string | { seconds: number; nanoseconds: number };
 }
 
 /**

@@ -10,8 +10,4 @@ export class SessionJoinDto {
   @IsString()
   @IsNotEmpty()
   sessionId!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  userId!: string;
 }

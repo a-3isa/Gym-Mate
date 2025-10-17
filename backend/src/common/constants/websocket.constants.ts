@@ -35,6 +35,12 @@ export const SOCKET_EVENTS = {
   SET_COMPLETE: 'set:complete',
 
   /**
+   * Emitted when weight/reps are updated (non-authoritative hint)
+   * Payload: { sessionId: string, exerciseId: string, setNumber: number, weight: number, reps: number }
+   */
+  WEIGHT_UPDATE: 'weight:update',
+
+  /**
    * Emitted when it's the next participant's turn
    * Payload: { sessionId: string, nextUserId: string }
    */
@@ -45,6 +51,24 @@ export const SOCKET_EVENTS = {
    * Payload: { sessionId: string, exerciseIndex: number, exerciseId: string }
    */
   EXERCISE_CHANGE: 'exercise:change',
+
+  /**
+   * Emitted when a participant starts a rest or workout timer
+   * Payload: { sessionId: string, timerType: 'rest' | 'workout', duration: number, startedBy: string }
+   */
+  TIMER_START: 'timer:start',
+
+  /**
+   * Emitted periodically to synchronize timer countdown across clients
+   * Payload: { sessionId: string, timerType: 'rest' | 'workout', remainingSeconds: number }
+   */
+  TIMER_SYNC: 'timer:sync',
+
+  /**
+   * Emitted when a timer is manually stopped or completes
+   * Payload: { sessionId: string, timerType: 'rest' | 'workout' }
+   */
+  TIMER_STOP: 'timer:stop',
 
   /**
    * Emitted when a participant's status changes

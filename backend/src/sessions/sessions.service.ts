@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { FirestoreService } from '../firebase/services/firestore.service';
 import { AuthService } from '../auth/auth.service';
+import { AvatarService } from '../progress';
 import {
   Session,
   SessionParticipant,
@@ -18,6 +19,7 @@ import { COLLECTIONS } from '../common/constants/firestore.constants';
 import { SessionGateway } from '../websocket/session.gateway';
 import { SessionExerciseDto, SessionStatus } from './dto';
 import { Timestamp } from 'firebase-admin/firestore';
+import { serializeOptionalTimestamp } from '../common/utils/serializeSession';
 
 // Custom exceptions for better error handling
 export class SessionNotFoundException extends NotFoundException {
@@ -46,7 +48,15 @@ export class SessionsService {
     private readonly firestoreService: FirestoreService,
     private readonly authService: AuthService,
     private readonly sessionGateway: SessionGateway,
+    private readonly avatarService: AvatarService,
   ) {}
+
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return typeof error === 'string' ? error : 'Unknown error';
+  }
 
   /**
    * Creates a new workout session with a friend
@@ -124,8 +134,10 @@ export class SessionsService {
     this.logger.log(`Session ${docRef.id} created by ${creatorUid} with ${friendUid}`);
     try {
       this.sessionGateway.emitSessionUpdate(session.id, session);
-    } catch (e) {
-      this.logger.error(`WS emit failed after createSession ${session.id}`);
+    } catch (error) {
+      this.logger.error(
+        `WS emit failed after createSession ${session.id}: ${this.getErrorMessage(error)}`,
+      );
     }
     return session;
   }
@@ -260,8 +272,10 @@ export class SessionsService {
         try {
           this.sessionGateway.emitSessionStart(sessionId, userId);
           this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
-        } catch (e) {
-          this.logger.error(`WS emit failed after acceptSession activation ${sessionId}`);
+        } catch (error) {
+          this.logger.error(
+            `WS emit failed after acceptSession activation ${sessionId}: ${this.getErrorMessage(error)}`,
+          );
         }
         return updatedSession;
       }
@@ -274,8 +288,10 @@ export class SessionsService {
       this.logger.log(`Session ${sessionId} proposals declined by creator ${userId}`);
       try {
         this.sessionGateway.emitSessionUpdate(sessionId, revertedSession);
-      } catch (e) {
-        this.logger.error(`WS emit failed after proposals declined ${sessionId}`);
+      } catch (error) {
+        this.logger.error(
+          `WS emit failed after proposals declined ${sessionId}: ${this.getErrorMessage(error)}`,
+        );
       }
       return revertedSession;
     }
@@ -338,8 +354,10 @@ export class SessionsService {
         this.sessionGateway.emitSessionStart(sessionId, userId);
       }
       this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
-    } catch (e) {
-      this.logger.error(`WS emit failed after acceptSession ${sessionId}`);
+    } catch (error) {
+      this.logger.error(
+        `WS emit failed after acceptSession ${sessionId}: ${this.getErrorMessage(error)}`,
+      );
     }
     return updatedSession;
   }
@@ -417,14 +435,42 @@ export class SessionsService {
         this.sessionGateway.emitSessionStart(sessionId, userId);
       }
       if (status === SessionStatus.COMPLETED && updatedSession.completedAt) {
-        const completedAtIso = (updatedSession.completedAt as any).toDate
-          ? (updatedSession.completedAt as any).toDate().toISOString()
-          : new Date().toISOString();
-        this.sessionGateway.emitSessionEnd(sessionId, completedAtIso);
+        // Update avatars for all participants when session completes
+        try {
+          for (const participantUid of updatedSession.participantUids) {
+            const evolution = await this.avatarService.updateAvatarAfterSession(
+              participantUid,
+              sessionId,
+            );
+            if (evolution) {
+              this.logger.log(
+                `Avatar level-up for user ${participantUid}: Level ${evolution.previousLevel} → ${evolution.newLevel}`,
+              );
+              // Emit avatar evolution WebSocket event
+              this.sessionGateway.emitAvatarEvolution(sessionId, participantUid, {
+                previousLevel: evolution.previousLevel,
+                newLevel: evolution.newLevel,
+                muscleGroupsGained: evolution.muscleGroupsGained,
+              });
+            }
+          }
+        } catch (error) {
+          this.logger.error(
+            `Failed to update avatars after manual complete for session ${sessionId}`,
+            error,
+          );
+          // Don't throw - avatar updates shouldn't break session completion
+        }
+
+        const completedAtIso = serializeOptionalTimestamp(updatedSession.completedAt);
+        if (completedAtIso) {
+          this.sessionGateway.emitSessionEnd(sessionId, completedAtIso);
+        }
       }
       this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
-    } catch (e) {
-      this.logger.error(`WS emit failed after updateSessionStatus ${sessionId}`);
+    } catch (error) {
+      const message = this.getErrorMessage(error);
+      this.logger.error(`WS emit failed after updateSessionStatus ${sessionId}: ${message}`);
     }
     return updatedSession;
   }
@@ -474,6 +520,7 @@ export class SessionsService {
       }
 
       const currentExerciseIndex = session.currentExerciseIndex;
+      const previousExerciseIndex = currentExerciseIndex;
       if (
         !Number.isInteger(currentExerciseIndex) ||
         currentExerciseIndex < 0 ||
@@ -558,8 +605,10 @@ export class SessionsService {
         } else {
           currentExerciseIndexToUpdate = Math.max(updatedExercises.length - 1, 0);
         }
-        didAdvanceExercise = true;
       }
+
+      const indexChanged = currentExerciseIndexToUpdate !== previousExerciseIndex;
+      didAdvanceExercise = indexChanged;
 
       const updates: Partial<Session> = {
         sets: updatedSets,
@@ -601,13 +650,41 @@ export class SessionsService {
         }
       }
       if (updatedSession.status === SessionStatus.COMPLETED && updatedSession.completedAt) {
-        const completedAtIso = (updatedSession.completedAt as any).toDate
-          ? (updatedSession.completedAt as any).toDate().toISOString()
-          : new Date().toISOString();
-        this.sessionGateway.emitSessionEnd(sessionId, completedAtIso);
+        // Update avatars for all participants when session completes
+        try {
+          for (const participantUid of updatedSession.participantUids) {
+            const evolution = await this.avatarService.updateAvatarAfterSession(
+              participantUid,
+              sessionId,
+            );
+            if (evolution) {
+              this.logger.log(
+                `Avatar level-up for user ${participantUid}: Level ${evolution.previousLevel} → ${evolution.newLevel}`,
+              );
+              // Emit avatar evolution WebSocket event
+              this.sessionGateway.emitAvatarEvolution(sessionId, participantUid, {
+                previousLevel: evolution.previousLevel,
+                newLevel: evolution.newLevel,
+                muscleGroupsGained: evolution.muscleGroupsGained,
+              });
+            }
+          }
+        } catch (error) {
+          this.logger.error(
+            `Failed to update avatars after auto-complete for session ${sessionId}`,
+            error,
+          );
+          // Don't throw - avatar updates shouldn't break session completion
+        }
+
+        const completedAtIso = serializeOptionalTimestamp(updatedSession.completedAt);
+        if (completedAtIso) {
+          this.sessionGateway.emitSessionEnd(sessionId, completedAtIso);
+        }
       }
-    } catch (e) {
-      this.logger.error(`WS emit failed after recordSet ${sessionId}`);
+    } catch (error) {
+      const message = this.getErrorMessage(error);
+      this.logger.error(`WS emit failed after recordSet ${sessionId}: ${message}`);
     }
     return updatedSession;
   }
@@ -664,8 +741,9 @@ export class SessionsService {
     );
     try {
       this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
-    } catch (e) {
-      this.logger.error(`WS emit failed after switchTurn ${sessionId}`);
+    } catch (error) {
+      const message = this.getErrorMessage(error);
+      this.logger.error(`WS emit failed after switchTurn ${sessionId}: ${message}`);
     }
     return updatedSession;
   }
@@ -691,14 +769,38 @@ export class SessionsService {
 
     const updatedSession = await this.getSessionById(sessionId, userId);
     this.logger.log(`Session ${sessionId} completed by ${userId}`);
+
+    // Trigger avatar update after session completion
+    // Avatar updates are non-critical - failures should be logged but not thrown
     try {
-      const completedAtIso = (updatedSession.completedAt as any).toDate
-        ? (updatedSession.completedAt as any).toDate().toISOString()
-        : new Date().toISOString();
-      this.sessionGateway.emitSessionEnd(sessionId, completedAtIso);
+      const evolution = await this.avatarService.updateAvatarAfterSession(userId, sessionId);
+      if (evolution) {
+        this.logger.log(
+          `Avatar level-up for user ${userId}: Level ${evolution.previousLevel} → ${evolution.newLevel}`,
+        );
+        // Emit avatar evolution WebSocket event for immediate client feedback
+        this.sessionGateway.emitAvatarEvolution(sessionId, userId, {
+          previousLevel: evolution.previousLevel,
+          newLevel: evolution.newLevel,
+          muscleGroupsGained: evolution.muscleGroupsGained,
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to update avatar for user ${userId} after session ${sessionId}`,
+        error,
+      );
+      // Don't throw - avatar updates shouldn't break session completion
+    }
+    try {
+      const completedAtIso = serializeOptionalTimestamp(updatedSession.completedAt);
+      if (completedAtIso) {
+        this.sessionGateway.emitSessionEnd(sessionId, completedAtIso);
+      }
       this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
-    } catch (e) {
-      this.logger.error(`WS emit failed after completeSession ${sessionId}`);
+    } catch (error) {
+      const message = this.getErrorMessage(error);
+      this.logger.error(`WS emit failed after completeSession ${sessionId}: ${message}`);
     }
     return updatedSession;
   }

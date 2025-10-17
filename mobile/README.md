@@ -111,6 +111,7 @@ The app uses Firebase Authentication with the JavaScript SDK for user management
 ### Token Management
 
 Firebase ID tokens expire after 1 hour. The app handles this automatically:
+
 - Tokens are refreshed before API requests if expired
 - On 401 responses, tokens are force-refreshed and request retried once
 - Failed refresh attempts log the user out
@@ -173,6 +174,7 @@ The app includes comprehensive profile management features allowing users to cus
 ### Profile Stack Navigation
 
 The Profile tab contains a nested stack navigator with:
+
 - **ProfileScreen**: Main profile view with user info and menu options
 - **EditProfileScreen**: Edit profile details and upload avatar
 - **FriendListScreen**: View and manage friend list
@@ -181,11 +183,13 @@ The Profile tab contains a nested stack navigator with:
 ### Image Handling
 
 #### expo-image-picker Configuration
+
 - **iOS**: Requires photo library permission (configured in app.json)
 - **Android**: Uses system photo picker (no permissions needed for Android 13+)
 - **Web**: Uses browser file picker
 
 #### Avatar Upload Flow
+
 1. User taps "Change Photo" in Edit Profile
 2. System photo picker opens
 3. User selects/crops image (1:1 aspect ratio)
@@ -195,12 +199,14 @@ The Profile tab contains a nested stack navigator with:
 ### Friend Management
 
 #### Adding Friends
+
 1. Navigate to Friends → Add Friend
 2. Search by email address (debounced search)
 3. View search results with profile info
 4. Add friend (creates bidirectional friendship)
 
 #### Privacy Features
+
 - **Email Search**: Exact match only, case-insensitive
 - **No Enumeration**: Returns null for non-existent users
 - **Debounced Search**: 300ms delay to reduce API calls
@@ -216,6 +222,7 @@ The Profile tab contains a nested stack navigator with:
 ### API Service
 
 Profile management is handled by `profile.service.ts`:
+
 - `updateProfile()`: Update profile fields
 - `uploadAvatar()`: Upload profile photo
 - `getFriends()`: Retrieve friend list
@@ -238,12 +245,14 @@ The app features a comprehensive exercise library with 100+ curated exercises ac
 ### Nested Navigation Structure
 
 The Exercises tab uses nested stack navigation:
+
 - **ExercisesScreen**: Main library view with filtering and search
 - **ExerciseDetailScreen**: Detailed exercise information
 
 ### Category Filtering UI
 
 The exercises screen features horizontal scrollable category chips:
+
 - **All**: Show all exercises (default)
 - **Category Chips**: Tap to filter by specific category
 - **Single-Select**: Tap active category again to show all
@@ -252,6 +261,7 @@ The exercises screen features horizontal scrollable category chips:
 ### Exercise Data Structure
 
 Each exercise includes:
+
 - **Name**: Exercise name
 - **Category**: One of 7 main categories
 - **Muscle Groups**: Primary muscles targeted
@@ -262,6 +272,7 @@ Each exercise includes:
 ### Client-Side Filtering
 
 With only 100 exercises, filtering is performed client-side for optimal performance:
+
 - Exercises are fetched once on screen focus
 - Category and search filters apply instantly
 - No additional API calls needed for filtering
@@ -269,6 +280,7 @@ With only 100 exercises, filtering is performed client-side for optimal performa
 ### API Service
 
 Exercise data is handled by `exercise.service.ts`:
+
 - `getAllExercises()`: Fetch all exercises from backend
 - `getExercisesByCategory()`: Fetch filtered exercises (server-side)
 - `getExerciseById()`: Get single exercise details
@@ -276,6 +288,7 @@ Exercise data is handled by `exercise.service.ts`:
 ### Exercise Categories
 
 **Strength Training:**
+
 - **Chest** (15): Bench press, push-ups, flyes, dips
 - **Back** (15): Pull-ups, rows, deadlifts, lat pulldowns
 - **Legs** (20): Squats, lunges, leg press, calf raises
@@ -284,6 +297,7 @@ Exercise data is handled by `exercise.service.ts`:
 - **Core** (15): Planks, crunches, leg raises, Russian twists
 
 **Cardiovascular:**
+
 - **Cardio** (8): Running, cycling, rowing, jump rope, burpees
 
 ### Future Enhancements (Phase 2)
@@ -295,6 +309,148 @@ Exercise data is handled by `exercise.service.ts`:
 - Custom exercise creation
 
 ## Session Management
+
+## Avatar System
+
+The mobile app features a gamified avatar system that evolves based on your workout data. Your avatar levels up and develops muscle groups based on exercise history and workout consistency.
+
+### Avatar Features
+
+- **Gamified Avatar**: SVG-based avatar that evolves with workout progress
+- **XP-based Leveling**: 50 levels with exponential progression curve
+- **Muscle Group Development**: Individual muscle groups (chest, back, legs, shoulders, arms, core) grow independently (1-10 levels each)
+- **Visual Feedback**: Level-up celebration modal when advancing to a new level
+- **Real-time Updates**: Avatar updates automatically after session completion
+
+### Avatar Display Locations
+
+- **ProfileScreen**: Large avatar with full progression stats
+- **HomeScreen**: Medium avatar with welcome message and level display
+- **ActiveSessionScreen**: Small avatars next to participant names
+
+### Progression System
+
+**XP Earned**:
+- Base 100 XP per workout
+- Streak bonus multiplier increases rewards
+- Volume bonus based on total weight lifted
+
+**Muscle Groups**:
+- Each muscle group levels 1-10 independently
+- Level based on exercise categories performed
+- Visual changes: body parts scale and change color with level
+
+**Level-up Triggers**:
+- Evolution modal appears when reaching new level
+- Celebration animation with confetti effect
+- Shows muscle groups that improved
+
+### Avatar Components
+
+**AvatarDisplay**:
+- SVG avatar renderer using react-native-svg
+- Customizable muscle group visualization
+- Body parts scale based on muscle levels (0.5x to 1.5x)
+- Color intensity increases with muscle definition
+
+**AvatarProgressCard**:
+- Stats card showing level, XP, streak, and muscle groups
+- Compact mode for small displays
+- Full mode with detailed muscle breakdown
+- Progress bars for visual feedback
+
+**AvatarEvolutionModal**:
+- Level-up celebration modal
+- Shows level progression (e.g., "Level 5 → Level 6")
+- Displays improved muscle groups
+- Spring animation for celebration effect
+
+**useAvatar Hook**:
+- Avatar state management
+- Automatic fetching on authentication
+- Refresh capability after workouts
+- Error handling and loading states
+
+### Customization
+
+**Avatar Appearance**:
+- Muscle groups scale from 50% to 150% of base size
+- Colors range from light (beginner) to dark (advanced)
+- Body proportions change based on workout focus
+- Core definition lines appear at higher levels
+
+### Project Structure
+
+New directories and files for avatar system:
+- `components/avatar/` - Avatar display components
+  - `AvatarDisplay.tsx` - SVG avatar renderer
+  - `AvatarProgressCard.tsx` - Stats display card
+  - `AvatarEvolutionModal.tsx` - Level-up celebration
+- `hooks/useAvatar.ts` - Avatar state management hook
+- `services/api/avatar.service.ts` - Avatar API calls
+- `types/models.ts` - Extended with MuscleGroups and AvatarState interfaces
+
+### Troubleshooting
+
+**Avatar not rendering**:
+- Ensure react-native-svg is installed (`npm install`)
+- Check that avatar state is loaded (not null)
+- Verify backend avatar endpoint is accessible
+
+**SVG Performance**:
+- Avatar components use optimized SVG paths
+- Consider reducing avatar size on low-end devices
+- Use React.memo for avatar components if needed
+
+**Evolution modal not showing**:
+- Check that session completion triggers avatar refresh
+- Verify level comparison logic in ActiveSessionScreen
+- Ensure modal visibility state is properly managed
+
+**Stats not updating**:
+- Pull-to-refresh on ProfileScreen to force update
+- Check backend progress tracking is working
+- Verify session completion flow
+
+## Real-time WebSocket Synchronization
+
+The app uses `socket.io-client` to connect to the backend `/sessions` namespace for real-time session updates. `SessionSocketProvider` manages the connection with Firebase authentication and room join/leave. Use `useSessionSocket` to access the socket in screens and components.
+
+Connection flow:
+
+- `SessionSocketProvider` wraps the app (inside `AuthProvider`, outside `NavigationContainer`).
+- `ActiveSessionScreen` calls `connect(sessionId)` on mount, which includes the Firebase ID token and joins `session:{sessionId}`.
+
+Handled events:
+
+- `session:update`: updates local session state immediately after server-side mutations.
+- `set:complete`, `weight:update`, `turn:change`, `exercise:change`, `session:start`, `session:end`: UI reacts accordingly; navigation occurs on session end.
+- `timer:start`, `timer:sync`: keep client-side timers aligned between participants.
+- Note: The `weight:update` event is emitted alongside `set:complete` for external consumers who expect this event name. The `turn:change` event is non-authoritative and intended only for transient UI hints.
+
+Timers:
+
+- Rest timer (default 90s) and workout timer (default 5m) are managed by `useTimer` and visualized by `TimerDisplay`.
+- Starting a timer emits `timer:start { sessionId, timerType, duration }`.
+- While active, the screen emits `timer:sync` every ~3 seconds with remaining seconds.
+
+Hybrid REST + WebSocket:
+
+- All authoritative mutations use REST endpoints (record set, switch turn, complete session) for validation and persistence.
+- The server broadcasts the committed state via WebSocket; the client listens for `session:update` to render the source-of-truth state.
+
+New structure additions:
+
+- `contexts/SessionSocketProvider.tsx`, `contexts/SessionSocketContext.tsx`
+- `hooks/useSessionSocket.ts`, `hooks/useTimer.ts`
+- `components/session/TimerDisplay.tsx`
+- `services/socket/socket.service.ts`
+
+Troubleshooting:
+
+- If not connecting, confirm `BACKEND_API_URL` is set and the token is valid.
+- If events are missing, verify you called `connect(sessionId)` and joined the correct room.
+- If timers desync, ensure `timer:sync` is emitted and handled.
 
 The app provides collaborative workout session management with friend invites and turn-based progression.
 
@@ -311,6 +467,7 @@ The app provides collaborative workout session management with friend invites an
 ### Nested Navigation Structure
 
 The Sessions tab uses nested stack navigation:
+
 - **SessionsScreen**: List of all sessions with status filtering
 - **CreateSessionScreen**: Friend selection for new session
 - **SelectExercisesScreen**: Exercise and target sets selection
@@ -327,6 +484,7 @@ The Sessions tab uses nested stack navigation:
 ### Active Session UI
 
 The active session screen provides:
+
 - **Current Exercise Display**: Shows exercise name and progress
 - **Your Sets**: View your completed sets with weight/reps
 - **Partner's Sets**: View partner's completed sets
@@ -354,6 +512,7 @@ The active session screen provides:
 ### API Service
 
 Session management is handled by `session.service.ts`:
+
 - `createSession()`: Create new session with friend and exercises
 - `getUserSessions()`: Fetch user's sessions with optional status filter
 - `getSessionById()`: Get specific session details
@@ -367,6 +526,7 @@ Session management is handled by `session.service.ts`:
 **Current Implementation**: REST API with 5-second polling for session state updates
 
 **Next Phase (WebSocket)**: Real-time synchronization will be implemented using Socket.IO for:
+
 - Instant turn notifications
 - Live set updates
 - Real-time progress tracking
@@ -375,16 +535,19 @@ Session management is handled by `session.service.ts`:
 ### Troubleshooting Session Issues
 
 **Session Not Updating**:
+
 - Check network connection
 - Pull-to-refresh on sessions list
 - Polling interval is 5 seconds in active session
 
 **Turn Not Switching**:
+
 - Ensure set was recorded successfully
 - Use "Skip Turn" if automatic switch fails
 - Check session status is 'active'
 
 **Friend Not Appearing**:
+
 - Ensure friend relationship exists (bidirectional)
 - Refresh friends list on create session screen
 - Check friend has active account
@@ -393,7 +556,7 @@ Session management is handled by `session.service.ts`:
 
 ### Common Authentication Issues
 
-1. **AsyncStorage Warnings**: 
+1. **AsyncStorage Warnings**:
    - Ensure `@react-native-async-storage/async-storage` is installed
    - Clear app data/cache if persistence issues occur
 
@@ -451,6 +614,7 @@ Session management is handled by `session.service.ts`:
 ### Dependencies Installation Issues
 
 If you encounter issues with Firebase, AsyncStorage, or expo-image-picker:
+
 ```bash
 # Clear cache and reinstall
 rm -rf node_modules

@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, StyleSheet, Alert, ScrollView, RefreshControl } from 'react-native';
 import { Text, Avatar, List, useTheme, ActivityIndicator } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import useAuth from '@hooks/useAuth';
+import useAvatar from '@hooks/useAvatar';
+import AvatarDisplay from '@components/avatar/AvatarDisplay';
+import AvatarProgressCard from '@components/avatar/AvatarProgressCard';
 import { SPACING } from '@utils/constants';
 import { ProfileStackNavigationProp } from '@navigation/types';
 
@@ -13,8 +16,16 @@ import { ProfileStackNavigationProp } from '@navigation/types';
 const ProfileScreen = () => {
   const { colors } = useTheme();
   const { user, logout } = useAuth();
+  const { avatarState, loading: avatarLoading, refreshAvatar } = useAvatar();
   const navigation = useNavigation<ProfileStackNavigationProp>();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshAvatar();
+    setRefreshing(false);
+  }, [refreshAvatar]);
 
   const handleLogout = async () => {
     Alert.alert(
@@ -49,8 +60,23 @@ const ProfileScreen = () => {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {user?.photoURL ? (
+    <ScrollView 
+      style={{ flex: 1, backgroundColor: colors.background }}
+      contentContainerStyle={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      {/* Avatar Display with muscle groups or fallback */}
+      {avatarLoading ? (
+        <ActivityIndicator size="large" style={styles.avatar} />
+      ) : avatarState ? (
+        <AvatarDisplay 
+          muscleGroups={avatarState.muscleGroups} 
+          size={96} 
+          style={styles.avatar}
+        />
+      ) : user?.photoURL ? (
         <Avatar.Image
           size={96}
           source={{ uri: user.photoURL }}
@@ -65,12 +91,19 @@ const ProfileScreen = () => {
           theme={{ colors: { primary: colors.primary } }}
         />
       )}
+      
+      {/* Username with level */}
       <Text variant="headlineSmall" style={[styles.username, { color: colors.onSurface }]}>
         {user?.displayName || 'User'}
+        {avatarState && ` • Lv. ${avatarState.level}`}
       </Text>
       <Text variant="bodyMedium" style={[styles.email, { color: colors.onSurfaceVariant }]}>
         {user?.email}
       </Text>
+      
+      {/* Avatar Progress Card */}
+      <AvatarProgressCard avatarState={avatarState} compact={true} />
+      
       <List.Section style={styles.listSection}>
         <List.Item 
           title="Edit Profile" 
@@ -97,7 +130,7 @@ const ProfileScreen = () => {
           titleStyle={{ color: colors.error }}
         />
       </List.Section>
-    </View>
+    </ScrollView>
   );
 };
 

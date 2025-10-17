@@ -271,6 +271,92 @@ Each exercise includes variations for different equipment levels (barbell, dumbb
 
 ## Session Management
 
+## Avatar System
+
+The backend implements a gamified avatar system that evolves based on workout data. Users' avatars level up and develop muscle groups based on their exercise history and consistency.
+
+### Features
+
+- **XP-based Leveling**: 50 levels with exponential growth curve
+- **Muscle Group Development**: Individual muscle groups (chest, back, legs, shoulders, arms, core) that grow independently (1-10 levels each)
+- **Automatic Updates**: Avatar updates automatically after session completion
+- **Streak Bonuses**: Workout streaks provide XP multipliers
+
+### Progression Algorithm
+
+**XP Calculation**:
+- Base XP per workout: 100 points
+- Streak multiplier: 1 + (currentStreak × 0.1)
+- Volume bonus: totalVolume / 1000
+- Final XP = baseXP × streakMultiplier + volumeBonus
+
+**Level Thresholds**:
+- Level 1: 0 XP
+- Level 2: 500 XP
+- Exponential growth: XP_required = 500 × (level^1.5)
+
+**Muscle Group Calculation**:
+- Exercises are grouped by category (chest, back, legs, etc.)
+- Muscle level (1-10) based on total volume and frequency for that category
+- Every 10,000 volume units = 1 muscle level (max 10)
+
+### API Endpoint
+
+- **GET** `/api/auth/avatar`: Get calculated avatar state
+  - **Headers**: `Authorization: Bearer <Firebase ID Token>`
+  - **Response** (AvatarState):
+    ```json
+    {
+      "level": 12,
+      "xp": 8500,
+      "xpToNextLevel": 1500,
+      "muscleGroups": {
+        "chest": 5,
+        "back": 4,
+        "legs": 6,
+        "shoulders": 3,
+        "arms": 4,
+        "core": 3
+      },
+      "totalWorkouts": 45,
+      "currentStreak": 7,
+      "lastUpdated": "2024-01-15T10:30:00Z"
+    }
+    ```
+  - **Requires authentication**
+
+### Avatar Evolution Events
+
+- Avatar updates are triggered after session completion via `SessionsService.completeSession`
+- Level-ups are detected by comparing previous and new avatar state
+- Evolution data includes:
+  - Previous level
+  - New level
+  - Muscle groups that increased
+
+### Integration Points
+
+- **SessionsService**: Calls `AvatarService.updateAvatarAfterSession` after session completion
+- **ProgressService**: Tracks workout history, streaks, and exercise progress
+- **AvatarService**: Calculates avatar state based on progress data
+
+### Troubleshooting
+
+**Avatar not updating**:
+- Check that session status is 'completed'
+- Verify progress document exists for user
+- Check logs for avatar calculation errors
+
+**Incorrect muscle group levels**:
+- Verify exercises have proper category assignments
+- Check that exercise volume is being tracked correctly
+- Ensure exercise IDs match between sessions and exercises collections
+
+**XP calculation discrepancies**:
+- Verify streak calculation (consecutive days logic)
+- Check volume calculation in completed sets
+- Ensure workout history is being recorded
+
 ## Real-time WebSocket Synchronization
 
 The backend exposes a Socket.IO namespace `/sessions` to synchronize workout sessions in real time. Each session maps to a room named `session:{sessionId}`. Authentication uses a Firebase ID token supplied via query param `token` or `Authorization: Bearer <token>` header.
@@ -480,8 +566,11 @@ Sessions transition through the following states:
 
 ### Firestore Indexes
 
-Sessions queries that filter by participant and status while ordering by `createdAt` require a composite index. Ensure the following index exists (already defined in `firestore.indexes.json`):
+Sessions queries that filter by participant and status while ordering by `createdAt` require a composite index. Additionally, streak calculation queries need an index for participant filtering with completion status and time ordering.
 
+Ensure the following indexes exist (should be defined in `firestore.indexes.json`):
+
+**Sessions by participant and status:**
 ```json
 {
   "collectionId": "sessions",
@@ -489,6 +578,18 @@ Sessions queries that filter by participant and status while ordering by `create
     { "fieldPath": "participantUids", "arrayConfig": "CONTAINS" },
     { "fieldPath": "status", "order": "ASCENDING" },
     { "fieldPath": "createdAt", "order": "DESCENDING" }
+  ]
+}
+```
+
+**Sessions for streak calculation:**
+```json
+{
+  "collectionId": "sessions", 
+  "fields": [
+    { "fieldPath": "participantUids", "arrayConfig": "CONTAINS" },
+    { "fieldPath": "status", "order": "ASCENDING" },
+    { "fieldPath": "completedAt", "order": "DESCENDING" }
   ]
 }
 ```
