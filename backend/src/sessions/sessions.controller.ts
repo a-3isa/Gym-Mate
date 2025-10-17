@@ -18,39 +18,18 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { SessionsService } from './sessions.service';
-import { CreateSessionDto, UpdateSessionDto, AcceptSessionDto, RecordSetDto } from './dto';
+import {
+  CreateSessionDto,
+  UpdateSessionDto,
+  AcceptSessionDto,
+  RecordSetDto,
+  GetSessionsQueryDto,
+} from './dto';
 import { FirebaseAuthGuard } from '../common/guards/firebase-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { serializeSession } from '../common/utils/serializeSession';
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
-
-/**
- * Serializes Firestore Timestamps to ISO strings for API responses
- * @param session - Session object with potential Timestamp fields
- * @returns Session with timestamps as ISO strings
- */
-const serializeSession = (session: any): any => {
-  const serialized = { ...session };
-  if (serialized.createdAt && typeof serialized.createdAt.toDate === 'function') {
-    serialized.createdAt = serialized.createdAt.toDate().toISOString();
-  }
-  if (serialized.startedAt && typeof serialized.startedAt.toDate === 'function') {
-    serialized.startedAt = serialized.startedAt.toDate().toISOString();
-  }
-  if (serialized.completedAt && typeof serialized.completedAt.toDate === 'function') {
-    serialized.completedAt = serialized.completedAt.toDate().toISOString();
-  }
-  // Serialize timestamps in sets
-  if (serialized.sets) {
-    serialized.sets = serialized.sets.map((set: any) => {
-      if (set.completedAt && typeof set.completedAt.toDate === 'function') {
-        return { ...set, completedAt: set.completedAt.toDate().toISOString() };
-      }
-      return set;
-    });
-  }
-  return serialized;
-};
 
 /**
  * Controller for managing workout sessions
@@ -81,7 +60,8 @@ export class SessionsController {
       );
       return serializeSession(session);
     } catch (error) {
-      this.logger.error(`Error creating session: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error creating session: ${message}`);
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -97,12 +77,14 @@ export class SessionsController {
    */
   @Get()
   @UseGuards(FirebaseAuthGuard)
-  async getUserSessions(@Query('status') status?: string, @CurrentUser() user?: any) {
+  @UsePipes(ValidationPipe)
+  async getUserSessions(@Query() query: GetSessionsQueryDto, @CurrentUser() user?: any) {
     try {
-      const sessions = await this.sessionsService.getUserSessions(user.uid, status);
+      const sessions = await this.sessionsService.getUserSessions(user.uid, query.status);
       return sessions.map(serializeSession);
     } catch (error) {
-      this.logger.error(`Error fetching user sessions: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error fetching user sessions: ${message}`);
       throw new BadRequestException('Failed to fetch sessions');
     }
   }
@@ -120,7 +102,8 @@ export class SessionsController {
       const session = await this.sessionsService.getSessionById(sessionId, user.uid);
       return serializeSession(session);
     } catch (error) {
-      this.logger.error(`Error fetching session ${sessionId}: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error fetching session ${sessionId}: ${message}`);
       if (error instanceof NotFoundException) {
         throw error;
       }
@@ -155,7 +138,8 @@ export class SessionsController {
       );
       return serializeSession(session);
     } catch (error) {
-      this.logger.error(`Error accepting session ${sessionId}: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error accepting session ${sessionId}: ${message}`);
       if (error instanceof NotFoundException) {
         throw error;
       }
@@ -195,7 +179,8 @@ export class SessionsController {
       );
       return serializeSession(session);
     } catch (error) {
-      this.logger.error(`Error updating session ${sessionId} status: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error updating session ${sessionId} status: ${message}`);
       if (error instanceof NotFoundException) {
         throw error;
       }
@@ -238,7 +223,8 @@ export class SessionsController {
       );
       return serializeSession(session);
     } catch (error) {
-      this.logger.error(`Error recording set for session ${sessionId}: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error recording set for session ${sessionId}: ${message}`);
       if (error instanceof NotFoundException) {
         throw error;
       }
@@ -268,7 +254,8 @@ export class SessionsController {
       const session = await this.sessionsService.switchTurn(sessionId, user.uid);
       return serializeSession(session);
     } catch (error) {
-      this.logger.error(`Error switching turn for session ${sessionId}: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error switching turn for session ${sessionId}: ${message}`);
       if (error instanceof NotFoundException) {
         throw error;
       }
@@ -295,7 +282,8 @@ export class SessionsController {
       const session = await this.sessionsService.completeSession(sessionId, user.uid);
       return serializeSession(session);
     } catch (error) {
-      this.logger.error(`Error completing session ${sessionId}: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error completing session ${sessionId}: ${message}`);
       if (error instanceof NotFoundException) {
         throw error;
       }

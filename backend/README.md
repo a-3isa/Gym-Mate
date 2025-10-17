@@ -19,11 +19,13 @@ Backend API for the Gym-Mate application.
 ## Installation
 
 1. Install dependencies:
+
    ```bash
    npm install
    ```
 
 2. Copy environment variables:
+
    ```bash
    cp .env.example .env
    ```
@@ -66,6 +68,7 @@ The backend uses Firebase Admin SDK to verify ID tokens sent by mobile clients. 
 ### WebSocket Authentication
 
 WebSocket clients must provide a Firebase ID token during connection:
+
 - **Query Parameter**: `?token=<Firebase ID Token>`
 - **Header**: `Authorization: Bearer <token>`
 
@@ -110,9 +113,9 @@ If authentication fails, the WebSocket connection will be terminated.
   - **Request Body** (UpdateProfileDto):
     ```json
     {
-      "displayName": "John Doe",  // Optional, 2-50 chars, letters/spaces/hyphens/apostrophes
-      "height": 180,              // Optional, 50-300 cm
-      "weight": 75                // Optional, 20-500 kg
+      "displayName": "John Doe", // Optional, 2-50 chars, letters/spaces/hyphens/apostrophes
+      "height": 180, // Optional, 50-300 cm
+      "weight": 75 // Optional, 20-500 kg
     }
     ```
   - **Response**: Updated User object
@@ -237,6 +240,7 @@ To populate the exercises collection with curated data:
    ```
 
 The seed script:
+
 - Uses Firebase Admin SDK BulkWriter for efficient batch writes
 - Supports both emulator (set `FIRESTORE_EMULATOR_HOST`) and production environments
 - In production, requires `--force` flag or `NODE_ENV` not set to `production`
@@ -247,6 +251,7 @@ The seed script:
 ### Exercise Categories
 
 The library includes exercises in the following categories:
+
 - **Chest**: 15 exercises (bench press variations, push-ups, flyes)
 - **Back**: 15 exercises (pull-ups, rows, deadlifts)
 - **Legs**: 20 exercises (squats, lunges, leg press)
@@ -265,6 +270,48 @@ Each exercise includes variations for different equipment levels (barbell, dumbb
 - Custom exercise creation by users
 
 ## Session Management
+
+## Real-time WebSocket Synchronization
+
+The backend exposes a Socket.IO namespace `/sessions` to synchronize workout sessions in real time. Each session maps to a room named `session:{sessionId}`. Authentication uses a Firebase ID token supplied via query param `token` or `Authorization: Bearer <token>` header.
+
+Key behaviors:
+
+- Clients connect, then emit `session:join` with `{ sessionId }` to join the room.
+- After any state mutation via REST (set recording, turn change, exercise transition, status change), the server emits `session:update` with the full, serialized Session.
+- Additional lifecycle events notify participants when sessions start, move to the next exercise, and end.
+
+Available events and payloads:
+
+- `session:join`: `{ sessionId, userId, timestamp }`
+- `session:leave`: `{ sessionId, userId, timestamp }`
+- `session:start`: `{ sessionId, startedBy }`
+- `session:update`: `{ sessionId, session }` (Firestore Timestamps are converted to ISO strings)
+- `set:complete`: `{ sessionId, exerciseId, setNumber, weight, reps, userId, timestamp }`
+- `weight:update`: `{ sessionId, exerciseId, setNumber, weight, reps, userId, timestamp }` - Emitted alongside `set:complete` for external consumers who expect this event name. Contains the same payload as `set:complete` but serves as a non-authoritative hint.
+- Note: The `turn:change` event is non-authoritative and intended only for transient UI hints.
+- `turn:change`: `{ sessionId, nextUserId, timestamp }`
+- `exercise:change`: `{ sessionId, exerciseIndex, exerciseId, exerciseName }`
+- `session:end`: `{ sessionId, completedAt }`
+- `timer:start`: `{ sessionId, timerType: 'rest'|'workout', duration, startedBy, timestamp }`
+- `timer:sync`: `{ sessionId, timerType: 'rest'|'workout', remainingSeconds, timestamp }`
+- `timer:stop`: `{ sessionId, timerType: 'rest'|'workout' }`
+- `server:error`: `{ message, code? }`
+
+Integration with REST API:
+
+- All authoritative mutations occur via REST endpoints (e.g., `POST /sessions/:id/sets`, `POST /sessions/:id/turn`, `PATCH /sessions/:id/status`).
+- After each successful Firestore commit, `SessionGateway` emits the appropriate WebSocket events (e.g., `session:update`, `session:start`, `session:end`, `exercise:change`). This ensures clients render a consistent, committed state.
+
+Timer synchronization:
+
+- Timers run on clients. A participant emits `timer:start` to broadcast the start and duration, and while active, clients emit `timer:sync` periodically (every ~3s) so both countdowns stay aligned. Optionally emit `timer:stop` when stopped early or on completion.
+
+Troubleshooting tips:
+
+- If a client fails to connect, verify the Firebase token is valid and available to the gateway. Check CORS settings in the Socket.IO adapter.
+- If events are not received, confirm the client joined the right room (`session:{sessionId}`) and that the gateway emits after state commits.
+- If timer drift occurs, ensure `timer:sync` is sent and handled regularly by all connected clients.
 
 The backend provides collaborative workout session management with friend invites and turn-based progression.
 
@@ -313,22 +360,24 @@ The backend provides collaborative workout session management with friend invite
     ```json
     {
       "accepted": true,
-      "exercises": []  // Optional: propose exercise modifications
+      "exercises": [] // Optional: propose exercise modifications
     }
     ```
   - **Response**: Updated Session object
   - **Requires authentication**
 
-- **PATCH** `/api/sessions/:id/status`: Update session status
+- **PATCH** `/api/sessions/:id/status`: Update session status only
   - **Headers**: `Authorization: Bearer <Firebase ID Token>`
   - **Request Body** (UpdateSessionDto):
     ```json
     {
-      "status": "active"
+      "status": "active" | "completed" | "cancelled"
     }
     ```
   - **Response**: Updated Session object
   - **Requires authentication**
+  - **Notes**: Status cannot transition back to `pending` after creation.
+  - **Notes**: No other session fields are accepted by this endpoint.
 
 - **POST** `/api/sessions/:id/sets`: Record a completed set
   - **Headers**: `Authorization: Bearer <Firebase ID Token>`
@@ -363,20 +412,19 @@ The collaborative workout process follows these steps:
 3. **Agreement**: Both users must agree on exercises before session starts
 4. **Activation**: Status changes from `pending` to `active`
 5. **Turn-based progression**: One user trains while other rests
-6. **Set recording**: After each set, the active user records weight/reps
-7. **Turn switching**: Turn automatically switches after set completion
-8. **Completion**: Session completes when all exercises finished or manually ended
+
+- **Set recording**: After each set, the active user records weight/reps
+- **Turn switching**: Turn automatically switches after set completion and alternates between participants, including when advancing to the next exercise
+- **Completion**: Session completes when all exercises finished or manually ended
 
 ### Session States
 
 Sessions transition through the following states:
 
-- **pending**: Invitation sent, awaiting acceptance
-- **active**: Both participants ready, workout in progress
-- **completed**: All exercises finished or manually ended
-- **cancelled**: Session cancelled by either participant
-
-### Turn-Based Logic
+- **Pending** establishes the session request and awaits confirmation.
+- **Active** indicates that both participants have accepted and the workout is in progress.
+- **Completed** signals that all planned exercises have been finished or the session was ended manually.
+- **Cancelled** occurs when an invitation is declined or a participant stops the session before completion.
 
 - Creator starts with the first turn (`currentTurn` set to creator's UID)
 - After recording a set, turn automatically switches to partner
@@ -384,7 +432,72 @@ Sessions transition through the following states:
 - Manual turn switching is available via the `/turn` endpoint
 - Session completes when all target sets are finished by both participants
 
-**Note**: Real-time synchronization via WebSocket is planned for Phase 1 - Real-time Session Sync. This phase focuses on REST API state management.
+### Sessions Collection (`/sessions/{sessionId}`)
+
+```typescript
+{
+  id: string,
+  participants: SessionParticipant[],
+  participantUids: string[],
+  exercises: SessionExercise[],
+  proposedExercises: SessionExercise[]?,
+  awaitingCreatorConfirmation: boolean?,
+  sets: SetRecord[],
+  status: 'pending' | 'active' | 'completed' | 'cancelled',
+  currentTurn: string,
+  currentExerciseIndex: number,
+  createdBy: string,
+  createdAt: Timestamp,
+  startedAt: Timestamp?,
+  completedAt: Timestamp?
+}
+
+// SessionParticipant
+{
+  uid: string,
+  displayName: string,
+  status: 'invited' | 'accepted' | 'declined' | 'active' | 'resting'
+}
+
+// SessionExercise
+{
+  exerciseId: string,
+  exerciseName: string,
+  targetSets: number,
+  completedSets: number
+}
+
+// SetRecord
+{
+  participantUid: string,
+  exerciseId: string,
+  setNumber: number,
+  weight: number,
+  reps: number,
+  completedAt: Timestamp
+}
+```
+
+### Firestore Indexes
+
+Sessions queries that filter by participant and status while ordering by `createdAt` require a composite index. Ensure the following index exists (already defined in `firestore.indexes.json`):
+
+```json
+{
+  "collectionId": "sessions",
+  "fields": [
+    { "fieldPath": "participantUids", "arrayConfig": "CONTAINS" },
+    { "fieldPath": "status", "order": "ASCENDING" },
+    { "fieldPath": "createdAt", "order": "DESCENDING" }
+  ]
+}
+```
+
+Deploy indexes after updates:
+
+```bash
+firebase deploy --only firestore:indexes
+```
 
 ## Firebase Setup
 
@@ -405,21 +518,25 @@ Sessions transition through the following states:
 For local development without consuming Firebase quota:
 
 1. Install Firebase CLI:
+
    ```bash
    npm install -g firebase-tools
    ```
 
 2. Initialize emulators in the backend directory:
+
    ```bash
    firebase init emulators
    ```
 
 3. Start emulators:
+
    ```bash
    firebase emulators:start
    ```
 
 4. Set emulator environment variables in `.env`:
+
    ```
    FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
    FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
@@ -452,14 +569,15 @@ const socket = io('http://localhost:3000/sessions', {
   transports: ['websocket'],
   upgrade: false,
   query: {
-    token: idToken
-  }
+    token: idToken,
+  },
 });
 ```
 
 ### Available Events
 
 #### Client → Server Events:
+
 - `session:join` - Join a workout session room
   ```json
   { "sessionId": "session123", "userId": "user456" }
@@ -470,7 +588,7 @@ const socket = io('http://localhost:3000/sessions', {
   ```
 - `set:complete` - Report completed set
   ```json
-  { 
+  {
     "sessionId": "session123",
     "exerciseId": "exercise789",
     "setNumber": 1,
@@ -484,6 +602,7 @@ const socket = io('http://localhost:3000/sessions', {
   ```
 
 #### Server → Client Events:
+
 - `session:join` - Broadcast when user joins
 - `session:leave` - Broadcast when user leaves
 - `set:complete` - Broadcast completed set data
@@ -493,19 +612,24 @@ const socket = io('http://localhost:3000/sessions', {
 ## Validation
 
 ### UpdateProfileDto
+
 Used for profile updates with the following validation rules:
+
 - **displayName**: Optional string, 2-50 characters, only letters, spaces, hyphens, and apostrophes
 - **height**: Optional number, 50-300 cm range
 - **weight**: Optional number, 20-500 kg range
 - **photoURL**: System-set after avatar upload
 
 ### AddFriendDto
+
 Used for adding friends by email:
+
 - **email**: Required, valid email format
 
 ## Firestore Collections
 
 ### Users Collection (`/users/{uid}`)
+
 ```typescript
 {
   uid: string,              // Firebase Auth UID
@@ -524,6 +648,7 @@ Used for adding friends by email:
 > Keep `participantUids` in sync with `participants.map(p => p.uid)` during create/update flows. A future helper may populate this automatically to avoid divergence.
 
 ### Exercises Collection (`/exercises/{exerciseId}`)
+
 ```typescript
 {
   id: string,
@@ -539,20 +664,23 @@ Used for adding friends by email:
 ```
 
 ### Sessions Collection (`/sessions/{sessionId}`)
+
 ```typescript
 {
   id: string,
-  participants: SessionParticipant[],  // Max 2 for Phase 1
-  participantUids: string[], // required for access checks and array-contains queries
+  participants: SessionParticipant[],
+  participantUids: string[],
   exercises: SessionExercise[],
-  status: 'pending' | 'active' | 'completed' | 'cancelled',
-  currentTurn: string,                 // Active participant UID
-  currentExerciseIndex: number,
+  proposedExercises: SessionExercise[]?,
+  awaitingCreatorConfirmation: boolean?,
   sets: SetRecord[],
+  status: 'pending' | 'active' | 'completed' | 'cancelled',
+  currentTurn: string,
+  currentExerciseIndex: number,
   createdBy: string,
   createdAt: Timestamp,
-  startedAt?: Timestamp,
-  completedAt?: Timestamp
+  startedAt: Timestamp?,
+  completedAt: Timestamp?
 }
 
 // SessionParticipant
@@ -582,6 +710,7 @@ Used for adding friends by email:
 ```
 
 ### Progress Collection (`/progress/{progressId}`)
+
 ```typescript
 {
   uid: string,
@@ -627,11 +756,13 @@ Used for adding friends by email:
 For local development without consuming Firebase quota:
 
 1. Install dependencies:
+
    ```bash
    npm install
    ```
 
 2. Start Firebase emulators (in a separate terminal):
+
    ```bash
    firebase emulators:start
    ```
@@ -646,11 +777,13 @@ The backend will automatically connect to the emulators if the environment varia
 ### Testing Firebase Connectivity
 
 After starting the backend, test Firebase connectivity:
+
 ```bash
 curl http://localhost:3000/api/health
 ```
 
 A successful response should include:
+
 ```json
 {
   "status": "ok",
@@ -671,6 +804,7 @@ A successful response should include:
 - **Firebase credentials**: Must be properly configured with production service account credentials
 
 Example production `.env`:
+
 ```
 NODE_ENV=production
 PORT=3000
@@ -686,6 +820,7 @@ WEBSOCKET_CORS_ORIGIN=https://your-frontend-domain.com
 ### Deploying Firestore Rules and Indexes
 
 Deploy security rules and indexes to Firebase:
+
 ```bash
 firebase deploy --only firestore:rules
 firebase deploy --only firestore:indexes
@@ -701,6 +836,7 @@ This project uses Husky for Git hooks, configured at the **monorepo root** (`d:\
 ### Setup
 
 1. **Initial setup** (after cloning the repository):
+
    ```bash
    # From the monorepo root (d:\Work\Gym-Mate)
    npm install

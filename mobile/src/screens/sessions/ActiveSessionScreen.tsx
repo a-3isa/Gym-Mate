@@ -1,11 +1,14 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Alert, Modal as RNModal } from 'react-native';
 import { Card, Text, Button, TextInput, ProgressBar, Chip, ActivityIndicator, Divider, useTheme, Portal, Dialog } from 'react-native-paper';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { getSessionById, recordSet, switchTurn, completeSession } from '../../services/api/session.service';
 import { Session, SessionExercise, SetRecord } from '../../types/models';
 import useAuth from '../../hooks/useAuth';
-import { SPACING } from '../../utils/constants';
+import { SPACING, SOCKET_EVENTS, TIMERS } from '../../utils/constants';
+import useSessionSocket from '../../hooks/useSessionSocket';
+import useTimer from '../../hooks/useTimer';
+import TimerDisplay from '../../components/session/TimerDisplay';
 import { SessionsStackRouteProp, SessionsStackNavigationProp } from '../../navigation/types';
 
 /**
@@ -25,8 +28,21 @@ const ActiveSessionScreen = () => {
   const [currentWeight, setCurrentWeight] = useState('');
   const [currentReps, setCurrentReps] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-
+  const { connect: socketConnect, disconnect: socketDisconnect, on, off, emit } = useSessionSocket();
   const isFetchingRef = useRef(false);
+  const completedRef = useRef(false);
+  const [restTimerStartedBy, setRestTimerStartedBy] = useState<string | null>(null);
+  const [workoutTimerStartedBy, setWorkoutTimerStartedBy] = useState<string | null>(null);
+  const lastStartIntentRef = useRef<{ timerType: string; timestamp: number } | null>(null);
+
+  const restTimer = useTimer(TIMERS.DEFAULT_REST_DURATION, () => {
+    // Optional auto progression: notify stop and optionally switch turn via REST
+    emit(SOCKET_EVENTS.TIMER_STOP, { sessionId, timerType: 'rest' });
+    // Business rule: we avoid auto switch; prompt/UX can be added later
+  });
+  const workoutTimer = useTimer(TIMERS.DEFAULT_WORKOUT_DURATION, () => {
+    emit(SOCKET_EVENTS.TIMER_STOP, { sessionId, timerType: 'workout' });
+  });
 
   /**
    * Fetches session data
@@ -48,19 +64,120 @@ const ActiveSessionScreen = () => {
     }
   }, [sessionId]);
 
-  /**
-   * Sets up polling for session updates (will be replaced by WebSocket in next phase)
-   */
+  // Replace polling with WebSocket connection
   useEffect(() => {
     fetchSession();
-    
-    const interval = setInterval(() => {
-      setRefreshing(true);
-      fetchSession();
-    }, 5000); // Poll every 5 seconds
-    
-    return () => clearInterval(interval);
-  }, [fetchSession]);
+    void socketConnect(sessionId);
+
+    const onSessionUpdate = (payload: any) => {
+      if (payload?.session) setSession(payload.session);
+    };
+    const onSetComplete = (_payload: any) => {
+      // Feedback only; authoritative update arrives via session:update
+    };
+    const onWeightUpdate = (_payload: any) => {
+      // Non-authoritative hint for external consumers
+    };
+    const onTurnChange = (_payload: any) => {
+      // Feedback only; authoritative update arrives via session:update
+    };
+    const onExerciseChange = (payload: any) => {
+      // Optimistic update for immediate UI feedback
+      if (payload?.sessionId === sessionId && typeof payload?.exerciseIndex === 'number') {
+        setSession(prev => prev ? { ...prev, currentExerciseIndex: payload.exerciseIndex } : null);
+      }
+    };
+    const onSessionEnd = () => {
+      if (completedRef.current) return; // Prevent double navigation
+      completedRef.current = true;
+      Alert.alert('Session Completed', 'This workout has ended.');
+      navigation.navigate('Sessions');
+    };
+    const onSessionStart = () => {
+      // Optional feedback; UI derives from session:update
+    };
+    const onTimerStart = (payload: any) => {
+      if (payload?.timerType === 'rest') {
+        // Guard: if this is our own timer and it's already active, ignore
+        if (payload.startedBy === user?.uid && restTimer.isActive) {
+          return;
+        }
+        setRestTimerStartedBy(payload.startedBy);
+        restTimer.reset();
+        restTimer.sync(payload.duration);
+        restTimer.start();
+      } else if (payload?.timerType === 'workout') {
+        // Guard: if this is our own timer and it's already active, ignore
+        if (payload.startedBy === user?.uid && workoutTimer.isActive) {
+          return;
+        }
+        setWorkoutTimerStartedBy(payload.startedBy);
+        workoutTimer.reset();
+        workoutTimer.sync(payload.duration);
+        workoutTimer.start();
+      }
+    };
+    const onTimerSync = (payload: any) => {
+      if (payload?.timerType === 'rest') {
+        restTimer.sync(payload.remainingSeconds);
+      } else if (payload?.timerType === 'workout') {
+        workoutTimer.sync(payload.remainingSeconds);
+      }
+    };
+    const onTimerStop = (payload: any) => {
+      if (payload?.timerType === 'rest') {
+        restTimer.stop();
+      } else if (payload?.timerType === 'workout') {
+        workoutTimer.stop();
+      }
+    };
+    const onError = (err: any) => {
+      // Handle TIMER_ALREADY_ACTIVE error
+      if (err?.code === 'TIMER_ALREADY_ACTIVE' && lastStartIntentRef.current) {
+        const { timerType } = lastStartIntentRef.current;
+        const now = Date.now();
+        
+        // Check if this error is recent (within 2 seconds of start intent)
+        if (now - lastStartIntentRef.current.timestamp < 2000) {
+          if (timerType === 'rest' && restTimer.isActive) {
+            restTimer.stop();
+            Alert.alert('Timer Conflict', 'A rest timer is already running. Your timer has been stopped.');
+          } else if (timerType === 'workout' && workoutTimer.isActive) {
+            workoutTimer.stop();
+            Alert.alert('Timer Conflict', 'A workout timer is already running. Your timer has been stopped.');
+          }
+        }
+        lastStartIntentRef.current = null;
+      }
+    };
+
+    on(SOCKET_EVENTS.SESSION_UPDATE, onSessionUpdate);
+    on(SOCKET_EVENTS.SET_COMPLETE, onSetComplete);
+    on(SOCKET_EVENTS.WEIGHT_UPDATE, onWeightUpdate);
+    on(SOCKET_EVENTS.TURN_CHANGE, onTurnChange);
+    on(SOCKET_EVENTS.EXERCISE_CHANGE, onExerciseChange);
+    on(SOCKET_EVENTS.SESSION_END, onSessionEnd);
+    on(SOCKET_EVENTS.SESSION_START, onSessionStart);
+    on(SOCKET_EVENTS.TIMER_START, onTimerStart);
+    on(SOCKET_EVENTS.TIMER_SYNC, onTimerSync);
+    on(SOCKET_EVENTS.TIMER_STOP, onTimerStop);
+    on(SOCKET_EVENTS.ERROR, onError);
+
+    return () => {
+      off(SOCKET_EVENTS.SESSION_UPDATE, onSessionUpdate);
+      off(SOCKET_EVENTS.SET_COMPLETE, onSetComplete);
+      off(SOCKET_EVENTS.WEIGHT_UPDATE, onWeightUpdate);
+      off(SOCKET_EVENTS.TURN_CHANGE, onTurnChange);
+      off(SOCKET_EVENTS.EXERCISE_CHANGE, onExerciseChange);
+      off(SOCKET_EVENTS.SESSION_END, onSessionEnd);
+      off(SOCKET_EVENTS.SESSION_START, onSessionStart);
+      off(SOCKET_EVENTS.TIMER_START, onTimerStart);
+      off(SOCKET_EVENTS.TIMER_SYNC, onTimerSync);
+      off(SOCKET_EVENTS.TIMER_STOP, onTimerStop);
+      off(SOCKET_EVENTS.ERROR, onError);
+      socketDisconnect();
+    };
+  }, [fetchSession, on, off, socketConnect, socketDisconnect, sessionId, navigation]);
 
   const isMyTurn = session?.currentTurn === user?.uid;
   const currentExerciseIndex = session ? session.currentExerciseIndex : undefined;
@@ -97,6 +214,13 @@ const ActiveSessionScreen = () => {
         reps
       );
       setSession(updatedSession);
+      emit(SOCKET_EVENTS.SET_COMPLETE, {
+        sessionId,
+        exerciseId: currentExercise.exerciseId,
+        setNumber: myCompletedSets.length + 1,
+        weight,
+        reps,
+      });
       setShowSetModal(false);
       setCurrentWeight('');
       setCurrentReps('');
@@ -106,7 +230,83 @@ const ActiveSessionScreen = () => {
     } finally {
       setRecording(false);
     }
-  }, [currentWeight, currentReps, currentExercise, sessionId, myCompletedSets.length]);
+  }, [currentWeight, currentReps, currentExercise, sessionId, myCompletedSets.length, emit]);
+
+  // Timer starters
+  const startRestTimer = useCallback(() => {
+    // Track start intent for error handling
+    lastStartIntentRef.current = { timerType: 'rest', timestamp: Date.now() };
+    
+    setRestTimerStartedBy(user?.uid || null);
+    restTimer.reset();
+    restTimer.start();
+    emit(SOCKET_EVENTS.TIMER_START, {
+      sessionId,
+      timerType: 'rest',
+      duration: TIMERS.DEFAULT_REST_DURATION,
+      startedBy: user?.uid,
+    });
+  }, [emit, sessionId, user?.uid]);
+
+  const startWorkoutTimer = useCallback(() => {
+    // Track start intent for error handling
+    lastStartIntentRef.current = { timerType: 'workout', timestamp: Date.now() };
+    
+    setWorkoutTimerStartedBy(user?.uid || null);
+    workoutTimer.reset();
+    workoutTimer.start();
+    emit(SOCKET_EVENTS.TIMER_START, {
+      sessionId,
+      timerType: 'workout',
+      duration: TIMERS.DEFAULT_WORKOUT_DURATION,
+      startedBy: user?.uid,
+    });
+  }, [emit, sessionId, user?.uid]);
+
+  // Periodic sync every 3s
+  // Timer sync: single interval using refs to avoid effect churn
+  const restStateRef = useRef({ active: false, remaining: 0, startedBy: null as string | null });
+  const workoutStateRef = useRef({ active: false, remaining: 0, startedBy: null as string | null });
+  useEffect(() => {
+    restStateRef.current.active = restTimer.isActive;
+    restStateRef.current.remaining = restTimer.remainingSeconds;
+    restStateRef.current.startedBy = restTimerStartedBy;
+  }, [restTimer.isActive, restTimer.remainingSeconds, restTimerStartedBy]);
+  useEffect(() => {
+    workoutStateRef.current.active = workoutTimer.isActive;
+    workoutStateRef.current.remaining = workoutTimer.remainingSeconds;
+    workoutStateRef.current.startedBy = workoutTimerStartedBy;
+  }, [workoutTimer.isActive, workoutTimer.remainingSeconds, workoutTimerStartedBy]);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Only emit timer:sync from the timer starter to reduce redundant traffic
+      if (restStateRef.current.active && restStateRef.current.startedBy === user?.uid) {
+        emit(SOCKET_EVENTS.TIMER_SYNC, {
+          sessionId,
+          timerType: 'rest',
+          remainingSeconds: restStateRef.current.remaining,
+        });
+      }
+      if (workoutStateRef.current.active && workoutStateRef.current.startedBy === user?.uid) {
+        emit(SOCKET_EVENTS.TIMER_SYNC, {
+          sessionId,
+          timerType: 'workout',
+          remainingSeconds: workoutStateRef.current.remaining,
+        });
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [emit, sessionId, user?.uid]);
+
+  const stopRestTimer = useCallback(() => {
+    restTimer.stop();
+    emit(SOCKET_EVENTS.TIMER_STOP, { sessionId, timerType: 'rest' });
+  }, [emit, sessionId]);
+
+  const stopWorkoutTimer = useCallback(() => {
+    workoutTimer.stop();
+    emit(SOCKET_EVENTS.TIMER_STOP, { sessionId, timerType: 'workout' });
+  }, [emit, sessionId]);
 
   /**
    * Skips turn to partner
@@ -146,9 +346,11 @@ const ActiveSessionScreen = () => {
           text: 'Complete',
           onPress: async () => {
             try {
+              completedRef.current = true; // Set flag to prevent double navigation
               await completeSession(sessionId);
               navigation.navigate('Sessions');
             } catch (error) {
+              completedRef.current = false; // Reset flag on error
               Alert.alert('Error', 'Failed to complete session');
               console.error('Error completing session:', error);
             }
@@ -176,7 +378,35 @@ const ActiveSessionScreen = () => {
     );
   }
 
-  if (!session || !currentExercise) {
+  if (!session) {
+    return (
+      <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
+        <Text>No session data available</Text>
+      </View>
+    );
+  }
+
+  if (session.status === 'completed') {
+    return (
+      <View style={[styles.centerContainer, { backgroundColor: theme.colors.background, padding: SPACING.lg }]}>
+        <Card style={[styles.card, { width: '90%' }]}> 
+          <Card.Content>
+            <Text variant="headlineSmall" style={{ marginBottom: SPACING.md }}>
+              Session Completed
+            </Text>
+            <Text variant="bodyMedium" style={{ marginBottom: SPACING.lg, color: theme.colors.onSurfaceVariant, textAlign: 'center' }}>
+              Great work! You can review other sessions or start a new workout anytime.
+            </Text>
+            <Button mode="contained" onPress={() => navigation.navigate('Sessions')}>
+              Back to Sessions
+            </Button>
+          </Card.Content>
+        </Card>
+      </View>
+    );
+  }
+
+  if (!currentExercise) {
     return (
       <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
         <Text>No session data available</Text>
@@ -200,6 +430,24 @@ const ActiveSessionScreen = () => {
       </Card>
 
       <Divider style={styles.divider} />
+
+      {/* Timers */}
+      <TimerDisplay
+        timerType="rest"
+        remainingSeconds={restTimer.remainingSeconds}
+        isActive={restTimer.isActive}
+        onStart={startRestTimer}
+        onStop={stopRestTimer}
+        onReset={restTimer.reset}
+      />
+      <TimerDisplay
+        timerType="workout"
+        remainingSeconds={workoutTimer.remainingSeconds}
+        isActive={workoutTimer.isActive}
+        onStart={startWorkoutTimer}
+        onStop={stopWorkoutTimer}
+        onReset={workoutTimer.reset}
+      />
 
       {/* Current Exercise */}
       <Card style={styles.card}>

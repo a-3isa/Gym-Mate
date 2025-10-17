@@ -1,4 +1,9 @@
 /**
+ * Session status enumeration
+ */
+export type SessionStatus = 'pending' | 'active' | 'completed' | 'cancelled';
+
+/**
  * User interface matching the backend User structure.
  * Represents a user profile stored in Firestore.
  */
@@ -138,8 +143,14 @@ export interface Session {
   /** Exercises to be performed in the session */
   exercises: SessionExercise[];
   
+  /** Optional proposed exercises from invited user awaiting creator confirmation */
+  proposedExercises?: SessionExercise[];
+  
+  /** Flag indicating if session is awaiting creator confirmation of proposed exercises */
+  awaitingCreatorConfirmation?: boolean;
+  
   /** Current status of the session */
-  status: 'pending' | 'active' | 'completed' | 'cancelled';
+  status: SessionStatus;
   
   /** UID of the participant whose turn it is */
   currentTurn: string;

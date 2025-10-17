@@ -1,10 +1,11 @@
 /* eslint-disable no-console */
 
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { initializeApp, getApps, cert, getApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, BulkWriter } from 'firebase-admin/firestore';
 import { exercisesData } from './seed-exercises.data';
 import { COLLECTIONS } from '../common/constants/firestore.constants';
 import { Exercise } from '../common/interfaces/exercise.interface';
+import 'dotenv/config';
 
 /**
  * Type for writing exercise data to Firestore
@@ -46,7 +47,6 @@ if (process.env.NODE_ENV === 'production' && !process.argv.includes('--force')) 
   console.error('Use --force flag to confirm: npm run seed:exercises -- --force');
   process.exit(1);
 }
-
 // Initialize Firebase Admin
 const apps = getApps();
 if (!apps.length) {
@@ -59,14 +59,17 @@ if (!apps.length) {
       credential: cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\n/g, '\n'),
       }),
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
     });
   } else {
-    // Use Application Default Credentials
-    initializeApp();
+    console.log(process.env.FIREBASE_PROJECT_ID);
+    initializeApp({ projectId: process.env.FIREBASE_PROJECT_ID });
   }
 }
+
+// optional: test Firestore connection
 const firestore = getFirestore();
 
 /**
@@ -141,7 +144,9 @@ async function seedExercises(): Promise<void> {
 
     // First, get all existing document IDs to check which are new
     const existingDocsSnapshot = await firestore.collection(COLLECTIONS.EXERCISES).get();
+    console.log('ssssssssssaaaaaaaaaaaaaaaaaa');
     const existingDocIds = new Set(existingDocsSnapshot.docs.map((doc) => doc.id));
+    console.log('zbar');
 
     // Queue all exercise documents for creation/update
     for (const exerciseData of exercisesData) {
@@ -164,6 +169,7 @@ async function seedExercises(): Promise<void> {
         void bulkWriter.set(docRef, exercise, { merge: true });
       }
     }
+    console.log('ssssssssssss');
 
     console.log('⏳ Committing all writes to Firestore...');
 

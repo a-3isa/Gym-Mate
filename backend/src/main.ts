@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { API_PREFIX } from './app.constants';
 import { ConfiguredSocketIoAdapter } from './websocket/configured-socket-io.adapter';
@@ -10,6 +10,14 @@ async function bootstrap() {
 
   // Enable graceful shutdown hooks for proper cleanup of Firebase connections and WebSocket connections
   app.enableShutdownHooks();
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  );
 
   app.setGlobalPrefix(API_PREFIX);
   const configService = app.get(ConfigService);

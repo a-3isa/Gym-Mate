@@ -15,6 +15,7 @@ import {
   SetRecord,
 } from '../common/interfaces/session.interface';
 import { COLLECTIONS } from '../common/constants/firestore.constants';
+import { SessionGateway } from '../websocket/session.gateway';
 import { SessionExerciseDto, SessionStatus } from './dto';
 import { Timestamp } from 'firebase-admin/firestore';
 
@@ -44,6 +45,7 @@ export class SessionsService {
   constructor(
     private readonly firestoreService: FirestoreService,
     private readonly authService: AuthService,
+    private readonly sessionGateway: SessionGateway,
   ) {}
 
   /**
@@ -58,6 +60,10 @@ export class SessionsService {
     friendUid: string,
     exercises: SessionExerciseDto[],
   ): Promise<Session> {
+    if (friendUid === creatorUid) {
+      throw new BadRequestException('You cannot create a session with yourself');
+    }
+
     // Validate friend relationship
     const friends = await this.authService.getFriends(creatorUid);
     const isFriend = friends.some((friend) => friend.uid === friendUid);
@@ -100,7 +106,7 @@ export class SessionsService {
       participants,
       participantUids: [creatorUid, friendUid],
       exercises: sessionExercises,
-      status: 'pending',
+      status: SessionStatus.PENDING,
       currentTurn: creatorUid,
       currentExerciseIndex: 0,
       sets: [],
@@ -116,6 +122,11 @@ export class SessionsService {
     };
 
     this.logger.log(`Session ${docRef.id} created by ${creatorUid} with ${friendUid}`);
+    try {
+      this.sessionGateway.emitSessionUpdate(session.id, session);
+    } catch (e) {
+      this.logger.error(`WS emit failed after createSession ${session.id}`);
+    }
     return session;
   }
 
@@ -149,7 +160,7 @@ export class SessionsService {
    * @param status - Optional status filter
    * @returns Array of Session objects sorted by createdAt descending
    */
-  async getUserSessions(userId: string, status?: string): Promise<Session[]> {
+  async getUserSessions(userId: string, status?: SessionStatus): Promise<Session[]> {
     let query = this.firestoreService
       .getCollection(COLLECTIONS.SESSIONS)
       .where('participantUids', 'array-contains', userId);
@@ -187,12 +198,31 @@ export class SessionsService {
   ): Promise<Session> {
     const session = await this.getSessionById(sessionId, userId);
 
+    const isAwaitingCreatorConfirmation = session.awaitingCreatorConfirmation === true;
+    const isPendingStatus = session.status === SessionStatus.PENDING;
+
+    if (
+      session.status === SessionStatus.ACTIVE ||
+      session.status === SessionStatus.COMPLETED ||
+      session.status === SessionStatus.CANCELLED
+    ) {
+      throw new InvalidSessionStateException(
+        `Cannot respond to a session that is ${session.status}`,
+      );
+    }
+
+    if (!isPendingStatus && !isAwaitingCreatorConfirmation) {
+      throw new InvalidSessionStateException(
+        'Session is not pending or awaiting creator confirmation',
+      );
+    }
+
     // Validate user is the invited participant or the creator confirming proposed exercises
     const participantIndex = session.participants.findIndex((p) => p.uid === userId);
     const isInvitedParticipant =
       participantIndex !== -1 && session.participants[participantIndex].status === 'invited';
     const isCreator = session.createdBy === userId;
-    const hasProposedExercises = session.exercises && session.exercises.length > 0; // Assuming proposedExercises are stored in exercises
+    const hasProposedExercises = session.proposedExercises && session.proposedExercises.length > 0;
 
     if (!isInvitedParticipant && !isCreator) {
       throw new BadRequestException(
@@ -203,24 +233,51 @@ export class SessionsService {
     const updates: Partial<Session> = {};
 
     // If creator is confirming proposed exercises
-    if (isCreator && !proposedExercises && hasProposedExercises) {
-      // Creator is confirming the proposed exercises
-      const allAccepted = session.participants.every((p) => p.status === 'accepted');
-      if (!allAccepted) {
-        throw new BadRequestException(
-          'All participants must accept before creator can confirm exercises',
-        );
+    if (isCreator && hasProposedExercises) {
+      if (proposedExercises && proposedExercises.length > 0) {
+        throw new BadRequestException('Creator cannot propose new exercises when confirming');
       }
-      updates.status = 'active';
-      updates.startedAt = Timestamp.now();
-      updates.participants = session.participants.map((p) => ({
-        ...p,
-        status: 'active',
-      }));
+
+      if (accepted) {
+        const allAccepted = session.participants.every((p) => p.status === 'accepted');
+        if (!allAccepted) {
+          throw new BadRequestException(
+            'All participants must accept before creator can confirm exercises',
+          );
+        }
+        updates.exercises = session.proposedExercises;
+        updates.proposedExercises = undefined;
+        updates.awaitingCreatorConfirmation = false;
+        updates.status = SessionStatus.ACTIVE;
+        updates.startedAt = Timestamp.now();
+        updates.participants = session.participants.map((p) => ({
+          ...p,
+          status: 'active',
+        }));
+        await this.firestoreService.updateDocument(COLLECTIONS.SESSIONS, sessionId, updates);
+        const updatedSession = await this.getSessionById(sessionId, userId);
+        this.logger.log(`Session ${sessionId} confirmed and activated by creator ${userId}`);
+        try {
+          this.sessionGateway.emitSessionStart(sessionId, userId);
+          this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
+        } catch (e) {
+          this.logger.error(`WS emit failed after acceptSession activation ${sessionId}`);
+        }
+        return updatedSession;
+      }
+
+      updates.proposedExercises = undefined;
+      updates.awaitingCreatorConfirmation = false;
+      updates.status = SessionStatus.PENDING;
       await this.firestoreService.updateDocument(COLLECTIONS.SESSIONS, sessionId, updates);
-      const updatedSession = await this.getSessionById(sessionId, userId);
-      this.logger.log(`Session ${sessionId} confirmed and activated by creator ${userId}`);
-      return updatedSession;
+      const revertedSession = await this.getSessionById(sessionId, userId);
+      this.logger.log(`Session ${sessionId} proposals declined by creator ${userId}`);
+      try {
+        this.sessionGateway.emitSessionUpdate(sessionId, revertedSession);
+      } catch (e) {
+        this.logger.error(`WS emit failed after proposals declined ${sessionId}`);
+      }
+      return revertedSession;
     }
 
     // Standard invited participant logic
@@ -228,12 +285,19 @@ export class SessionsService {
       throw new BadRequestException('Only invited participants can propose exercise modifications');
     }
 
-    // Update participant status
-    session.participants[participantIndex].status = accepted ? 'accepted' : 'declined';
+    const participantUpdates = session.participants.map((participant, index) => {
+      if (index !== participantIndex) {
+        return participant;
+      }
+      return {
+        ...participant,
+        status: accepted ? 'accepted' : 'declined',
+      } as SessionParticipant;
+    });
 
-    updates.participants = session.participants;
+    updates.participants = participantUpdates;
 
-    // If accepted and exercises proposed, update exercises (requires creator confirmation in UI)
+    // If accepted and exercises proposed, store them separately and set confirmation flag
     if (accepted && proposedExercises) {
       const sessionExercises: SessionExercise[] = proposedExercises.map((exercise) => ({
         exerciseId: exercise.exerciseId,
@@ -241,36 +305,50 @@ export class SessionsService {
         targetSets: exercise.targetSets,
         completedSets: 0,
       }));
-      updates.exercises = sessionExercises;
+      updates.proposedExercises = sessionExercises;
+      updates.awaitingCreatorConfirmation = true;
     }
 
-    // If both participants accepted, start the session
-    const allAccepted = session.participants.every((p) => p.status === 'accepted');
+    // If both participants accepted and no proposed exercises, start the session
+    const allAccepted = participantUpdates.every((p) => p.status === 'accepted');
 
-    if (accepted && allAccepted && !proposedExercises) {
-      updates.status = 'active';
+    if (accepted && allAccepted && !proposedExercises && !session.awaitingCreatorConfirmation) {
+      updates.status = SessionStatus.ACTIVE;
       updates.startedAt = Timestamp.now();
       // Set all participant statuses to 'active'
-      updates.participants = session.participants.map((p) => ({
+      updates.participants = participantUpdates.map((p) => ({
         ...p,
         status: 'active',
       }));
     } else if (!accepted) {
-      updates.status = 'cancelled';
+      updates.status = SessionStatus.CANCELLED;
+      updates.participants = participantUpdates.map((p, index) =>
+        index === participantIndex ? { ...p, status: 'declined' } : p,
+      );
+      updates.proposedExercises = undefined;
+      updates.awaitingCreatorConfirmation = false;
     }
 
     await this.firestoreService.updateDocument(COLLECTIONS.SESSIONS, sessionId, updates);
 
     const updatedSession = await this.getSessionById(sessionId, userId);
     this.logger.log(`Session ${sessionId} ${accepted ? 'accepted' : 'declined'} by ${userId}`);
+    try {
+      if (updatedSession.status === SessionStatus.ACTIVE) {
+        this.sessionGateway.emitSessionStart(sessionId, userId);
+      }
+      this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
+    } catch (e) {
+      this.logger.error(`WS emit failed after acceptSession ${sessionId}`);
+    }
     return updatedSession;
   }
 
   /**
-   * Updates session status with validation - only allows cancelling sessions
+   * Updates session status with validation - supports status transitions
    * @param sessionId - Session ID
    * @param userId - User ID requesting the update
-   * @param status - New status (must be 'cancelled')
+   * @param status - New status (cancelled, active, or completed)
    * @returns Updated Session object
    */
   async updateSessionStatus(
@@ -280,29 +358,74 @@ export class SessionsService {
   ): Promise<Session> {
     const session = await this.getSessionById(sessionId, userId);
 
-    // Only allow cancelling sessions
-    /* eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison */
-    if (status !== 'cancelled') {
-      throw new BadRequestException(
-        'Only session cancellation is allowed via this endpoint. Use acceptSession() for activation or completeSession() for completion.',
-      );
+    // Validate session state transitions
+    if (status === SessionStatus.PENDING && session.status !== SessionStatus.PENDING) {
+      throw new InvalidSessionStateException('Sessions cannot transition back to pending');
     }
 
-    // Validate session is not already completed or cancelled
-    if (session.status === 'completed' || session.status === 'cancelled') {
+    if (
+      status === SessionStatus.CANCELLED &&
+      (session.status === SessionStatus.COMPLETED || session.status === SessionStatus.CANCELLED)
+    ) {
       throw new InvalidSessionStateException(
         `Cannot cancel a session that is already ${session.status}`,
       );
     }
 
+    if (status === SessionStatus.ACTIVE && session.status !== SessionStatus.PENDING) {
+      throw new InvalidSessionStateException('Only pending sessions can be activated');
+    }
+
+    if (status === SessionStatus.ACTIVE) {
+      const allParticipantsAccepted = session.participants.every(
+        (participant) => participant.status === 'accepted',
+      );
+
+      if (!allParticipantsAccepted || session.awaitingCreatorConfirmation) {
+        throw new InvalidSessionStateException(
+          'Session cannot be activated until all participants have accepted',
+        );
+      }
+    }
+
+    if (status === SessionStatus.COMPLETED && session.status !== SessionStatus.ACTIVE) {
+      throw new InvalidSessionStateException('Only active sessions can be completed');
+    }
+
     const updates: Partial<Session> = {
-      status: status as Session['status'],
+      status: status,
     };
+
+    // Set timestamps based on status change
+    if (status === SessionStatus.ACTIVE) {
+      updates.startedAt = Timestamp.now();
+      // Set all participant statuses to 'active'
+      updates.participants = session.participants.map((p) => ({
+        ...p,
+        status: 'active',
+      }));
+    } else if (status === SessionStatus.COMPLETED) {
+      updates.completedAt = Timestamp.now();
+    }
 
     await this.firestoreService.updateDocument(COLLECTIONS.SESSIONS, sessionId, updates);
 
     const updatedSession = await this.getSessionById(sessionId, userId);
     this.logger.log(`Session ${sessionId} status updated to ${status}`);
+    try {
+      if (status === SessionStatus.ACTIVE && updatedSession.startedAt) {
+        this.sessionGateway.emitSessionStart(sessionId, userId);
+      }
+      if (status === SessionStatus.COMPLETED && updatedSession.completedAt) {
+        const completedAtIso = (updatedSession.completedAt as any).toDate
+          ? (updatedSession.completedAt as any).toDate().toISOString()
+          : new Date().toISOString();
+        this.sessionGateway.emitSessionEnd(sessionId, completedAtIso);
+      }
+      this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
+    } catch (e) {
+      this.logger.error(`WS emit failed after updateSessionStatus ${sessionId}`);
+    }
     return updatedSession;
   }
 
@@ -324,7 +447,8 @@ export class SessionsService {
     weight: number,
     reps: number,
   ): Promise<Session> {
-    const updatedSession = await this.firestoreService.runTransaction(async (transaction) => {
+    let didAdvanceExercise = false;
+    const updated = await this.firestoreService.runTransaction(async (transaction) => {
       const sessionRef = this.firestoreService.getDocument(COLLECTIONS.SESSIONS, sessionId);
       const sessionSnap = await transaction.get(sessionRef);
 
@@ -340,7 +464,7 @@ export class SessionsService {
       }
 
       // Validate session is active
-      if (session.status !== 'active') {
+      if (session.status !== SessionStatus.ACTIVE) {
         throw new InvalidSessionStateException('Session must be active to record sets');
       }
 
@@ -349,8 +473,17 @@ export class SessionsService {
         throw new BadRequestException("It's not your turn to record a set");
       }
 
+      const currentExerciseIndex = session.currentExerciseIndex;
+      if (
+        !Number.isInteger(currentExerciseIndex) ||
+        currentExerciseIndex < 0 ||
+        currentExerciseIndex >= session.exercises.length
+      ) {
+        throw new InvalidSessionStateException('Invalid current exercise index');
+      }
+
       // Validate exerciseId is the current exercise
-      const currentExerciseCheck = session.exercises[session.currentExerciseIndex];
+      const currentExerciseCheck = session.exercises[currentExerciseIndex];
       if (exerciseId !== currentExerciseCheck.exerciseId) {
         throw new BadRequestException('Not the current exercise');
       }
@@ -400,10 +533,14 @@ export class SessionsService {
 
       // Determine next turn
       const otherParticipant = session.participantUids.find((uid) => uid !== userId);
-      let currentExerciseIndex = session.currentExerciseIndex;
+      if (!otherParticipant) {
+        throw new BadRequestException('Cannot determine other participant');
+      }
+      let currentExerciseIndexToUpdate = currentExerciseIndex;
+      const nextTurn: string = otherParticipant;
 
       // Check if all sets for current exercise are completed
-      const currentExercise = updatedExercises[currentExerciseIndex];
+      const currentExercise = updatedExercises[currentExerciseIndexToUpdate];
       const userSetsAfterRecord = updatedSets.filter(
         (s) => s.exerciseId === currentExercise.exerciseId && s.participantUid === userId,
       ).length;
@@ -412,18 +549,23 @@ export class SessionsService {
       ).length;
 
       // If both users have completed target sets for current exercise, move to next
-      if (
+      const willAdvanceExercise =
         userSetsAfterRecord >= currentExercise.targetSets &&
-        partnerSetsForExercise >= currentExercise.targetSets
-      ) {
-        currentExerciseIndex++;
+        partnerSetsForExercise >= currentExercise.targetSets;
+      if (willAdvanceExercise) {
+        if (currentExerciseIndexToUpdate + 1 < updatedExercises.length) {
+          currentExerciseIndexToUpdate += 1;
+        } else {
+          currentExerciseIndexToUpdate = Math.max(updatedExercises.length - 1, 0);
+        }
+        didAdvanceExercise = true;
       }
 
       const updates: Partial<Session> = {
         sets: updatedSets,
         exercises: updatedExercises,
-        currentTurn: otherParticipant,
-        currentExerciseIndex,
+        currentTurn: nextTurn,
+        currentExerciseIndex: currentExerciseIndexToUpdate,
       };
 
       // Check if session is complete
@@ -432,18 +574,41 @@ export class SessionsService {
       );
 
       if (allExercisesComplete) {
-        updates.status = 'completed';
+        updates.status = SessionStatus.COMPLETED;
         updates.completedAt = Timestamp.now();
       }
 
       transaction.update(sessionRef, updates);
 
-      // Return the updated session
-      const updatedSessionSnap = await transaction.get(sessionRef);
-      const updatedSession = updatedSessionSnap.data() as Session;
-      return { ...updatedSession, id: sessionId };
+      const updatedSession = { ...session, ...updates } as Session;
+      return { ...updatedSession, id: sessionId } as Session & { __advanced?: boolean };
     });
+    const updatedSession = updated as Session;
     this.logger.log(`Set recorded for session ${sessionId} by ${userId}`);
+    try {
+      this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
+      // Only emit exercise change if index advanced
+      if (didAdvanceExercise) {
+        const idx = updatedSession.currentExerciseIndex;
+        const exercise = updatedSession.exercises[idx];
+        if (exercise) {
+          this.sessionGateway.emitExerciseChange(
+            sessionId,
+            idx,
+            exercise.exerciseId,
+            exercise.exerciseName,
+          );
+        }
+      }
+      if (updatedSession.status === SessionStatus.COMPLETED && updatedSession.completedAt) {
+        const completedAtIso = (updatedSession.completedAt as any).toDate
+          ? (updatedSession.completedAt as any).toDate().toISOString()
+          : new Date().toISOString();
+        this.sessionGateway.emitSessionEnd(sessionId, completedAtIso);
+      }
+    } catch (e) {
+      this.logger.error(`WS emit failed after recordSet ${sessionId}`);
+    }
     return updatedSession;
   }
 
@@ -454,31 +619,54 @@ export class SessionsService {
    * @returns Updated Session object
    */
   async switchTurn(sessionId: string, userId: string): Promise<Session> {
-    const session = await this.getSessionById(sessionId, userId);
+    const updatedSession = await this.firestoreService.runTransaction(async (transaction) => {
+      const sessionRef = this.firestoreService.getDocument(COLLECTIONS.SESSIONS, sessionId);
+      const sessionSnap = await transaction.get(sessionRef);
 
-    // Validate session is active
-    if (session.status !== 'active') {
-      throw new InvalidSessionStateException('Session must be active to switch turns');
-    }
+      if (!sessionSnap.exists) {
+        throw new SessionNotFoundException(sessionId);
+      }
 
-    // Validate that only the current turn holder can switch turns
-    if (session.currentTurn !== userId) {
-      throw new ForbiddenException('Only the current turn holder can switch turns');
-    }
+      const session = sessionSnap.data() as Session;
 
-    // Toggle to other participant
-    const otherParticipant = session.participantUids.find((uid) => uid !== session.currentTurn);
+      if (!session.participantUids.includes(userId)) {
+        throw new UnauthorizedSessionAccessException();
+      }
 
-    if (!otherParticipant) {
-      throw new BadRequestException('Cannot determine other participant');
-    }
+      if (session.status !== SessionStatus.ACTIVE) {
+        throw new InvalidSessionStateException('Session must be active to switch turns');
+      }
 
-    await this.firestoreService.updateDocument(COLLECTIONS.SESSIONS, sessionId, {
-      currentTurn: otherParticipant,
+      if (session.currentTurn !== userId) {
+        throw new ForbiddenException('Only the current turn holder can switch turns');
+      }
+
+      const otherParticipant = session.participantUids.find((uid) => uid !== session.currentTurn);
+
+      if (!otherParticipant) {
+        throw new BadRequestException('Cannot determine other participant');
+      }
+
+      transaction.update(sessionRef, {
+        currentTurn: otherParticipant,
+      });
+
+      const sessionWithUpdatedTurn: Session = {
+        ...session,
+        currentTurn: otherParticipant,
+      };
+
+      return { ...sessionWithUpdatedTurn, id: sessionId };
     });
 
-    const updatedSession = await this.getSessionById(sessionId, userId);
-    this.logger.log(`Turn switched from ${userId} to ${otherParticipant} in session ${sessionId}`);
+    this.logger.log(
+      `Turn switched from ${userId} to ${updatedSession.currentTurn} in session ${sessionId}`,
+    );
+    try {
+      this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
+    } catch (e) {
+      this.logger.error(`WS emit failed after switchTurn ${sessionId}`);
+    }
     return updatedSession;
   }
 
@@ -492,17 +680,26 @@ export class SessionsService {
     const session = await this.getSessionById(sessionId, userId);
 
     // Validate session is active
-    if (session.status !== 'active') {
+    if (session.status !== SessionStatus.ACTIVE) {
       throw new InvalidSessionStateException('Only active sessions can be completed');
     }
 
     await this.firestoreService.updateDocument(COLLECTIONS.SESSIONS, sessionId, {
-      status: 'completed',
+      status: SessionStatus.COMPLETED,
       completedAt: Timestamp.now(),
     });
 
     const updatedSession = await this.getSessionById(sessionId, userId);
     this.logger.log(`Session ${sessionId} completed by ${userId}`);
+    try {
+      const completedAtIso = (updatedSession.completedAt as any).toDate
+        ? (updatedSession.completedAt as any).toDate().toISOString()
+        : new Date().toISOString();
+      this.sessionGateway.emitSessionEnd(sessionId, completedAtIso);
+      this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
+    } catch (e) {
+      this.logger.error(`WS emit failed after completeSession ${sessionId}`);
+    }
     return updatedSession;
   }
 }

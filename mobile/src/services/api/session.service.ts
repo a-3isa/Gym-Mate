@@ -1,5 +1,5 @@
 import apiClient from './client';
-import { Session, SessionExercise } from '../../types/models';
+import { Session, SessionExercise, SessionStatus } from '../../types/models';
 
 /**
  * Creates a new workout session with a friend
@@ -89,6 +89,16 @@ export async function acceptSession(
     if (error.response?.status === 404) {
       throw new Error('Session not found');
     }
+    if (error.response?.status === 400) {
+      const message = error.response.data?.message;
+      if (typeof message === 'string' && message.trim().length > 0) {
+        throw new Error(message);
+      }
+      throw new Error('Invalid request');
+    }
+    if (error.response?.status === 409) {
+      throw new Error('Invalid session state');
+    }
     throw new Error('Failed to accept session');
   }
 }
@@ -101,7 +111,7 @@ export async function acceptSession(
  */
 export async function updateSessionStatus(
   sessionId: string,
-  status: string,
+  status: SessionStatus,
 ): Promise<Session> {
   try {
     const response = await apiClient.patch(`/sessions/${sessionId}/status`, {

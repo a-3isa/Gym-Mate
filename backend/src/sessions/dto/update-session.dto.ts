@@ -1,4 +1,4 @@
-import { IsOptional, IsEnum, IsString, IsInt, Min } from 'class-validator';
+import { IsOptional, IsEnum, IsString, Min, IsInt } from 'class-validator';
 
 /**
  * Session status enumeration
@@ -11,8 +11,7 @@ export enum SessionStatus {
 }
 
 /**
- * DTO for updating session state during workout progression
- * Used for status changes, turn switches, and exercise transitions
+ * DTO for updating the session status
  */
 export class UpdateSessionDto {
   @IsOptional()
@@ -21,7 +20,7 @@ export class UpdateSessionDto {
 
   @IsOptional()
   @IsString()
-  currentTurn?: string; // uid
+  currentTurn?: string;
 
   @IsOptional()
   @IsInt()

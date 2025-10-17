@@ -1,4 +1,5 @@
 import { Timestamp } from 'firebase-admin/firestore';
+import { SessionStatus } from '../../sessions/dto';
 
 /**
  * SessionParticipant interface representing a participant in a workout session
@@ -103,9 +104,19 @@ export interface Session {
   exercises: SessionExercise[];
 
   /**
+   * Optional proposed exercises from invited user awaiting creator confirmation
+   */
+  proposedExercises?: SessionExercise[];
+
+  /**
+   * Flag indicating if session is awaiting creator confirmation of proposed exercises
+   */
+  awaitingCreatorConfirmation?: boolean;
+
+  /**
    * Current status of the session
    */
-  status: 'pending' | 'active' | 'completed' | 'cancelled';
+  status: SessionStatus;
 
   /**
    * UID of the participant whose turn it is to perform

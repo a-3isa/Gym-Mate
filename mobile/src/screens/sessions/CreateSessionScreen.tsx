@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, StyleSheet, FlatList, Alert } from 'react-native';
 import { List, Avatar, ActivityIndicator, Divider, Button, Searchbar, useTheme, Text, Checkbox } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
@@ -16,7 +16,6 @@ const CreateSessionScreen = () => {
   const navigation = useNavigation<SessionsStackNavigationProp>();
   
   const [friends, setFriends] = useState<User[]>([]);
-  const [filteredFriends, setFilteredFriends] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFriend, setSelectedFriend] = useState<User | null>(null);
@@ -30,7 +29,6 @@ const CreateSessionScreen = () => {
         try {
           const data = await getFriends();
           setFriends(data);
-          setFilteredFriends(data);
         } catch (error) {
           Alert.alert('Error', 'Failed to fetch friends');
           console.error('Error fetching friends:', error);
@@ -46,18 +44,17 @@ const CreateSessionScreen = () => {
   /**
    * Filters friends based on search query
    */
-  React.useMemo(() => {
+  const filteredFriends = useMemo(() => {
     if (!searchQuery) {
-      setFilteredFriends(friends);
-    } else {
-      const query = searchQuery.toLowerCase();
-      const filtered = friends.filter(
-        friend => 
-          friend.displayName.toLowerCase().includes(query) ||
-          friend.email.toLowerCase().includes(query)
-      );
-      setFilteredFriends(filtered);
+      return friends;
     }
+
+    const query = searchQuery.toLowerCase();
+    return friends.filter(
+      friend =>
+        friend.displayName.toLowerCase().includes(query) ||
+        friend.email.toLowerCase().includes(query),
+    );
   }, [searchQuery, friends]);
 
   /**

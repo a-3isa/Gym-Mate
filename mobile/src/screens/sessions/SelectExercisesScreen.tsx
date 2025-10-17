@@ -25,7 +25,6 @@ const SelectExercisesScreen = () => {
   const { friendUid, friendName } = route.params;
   
   const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [filteredExercises, setFilteredExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,7 +40,6 @@ const SelectExercisesScreen = () => {
         try {
           const data = await getAllExercises();
           setExercises(data);
-          setFilteredExercises(data);
         } catch (error) {
           Alert.alert('Error', 'Failed to fetch exercises');
           console.error('Error fetching exercises:', error);
@@ -57,21 +55,19 @@ const SelectExercisesScreen = () => {
   /**
    * Filters exercises based on category and search query
    */
-  useMemo(() => {
+  const filteredExercises = useMemo(() => {
     let filtered = exercises;
-    
+
     if (selectedCategory) {
-      filtered = filtered.filter(ex => ex.category === selectedCategory);
+      filtered = filtered.filter((ex) => ex.category === selectedCategory);
     }
-    
+
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(ex => 
-        ex.name.toLowerCase().includes(query)
-      );
+      filtered = filtered.filter((ex) => ex.name.toLowerCase().includes(query));
     }
-    
-    setFilteredExercises(filtered);
+
+    return filtered;
   }, [selectedCategory, searchQuery, exercises]);
 
   /**

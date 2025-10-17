@@ -3,9 +3,9 @@ import { View, StyleSheet, FlatList, RefreshControl, ScrollView, TouchableOpacit
 import { Text, FAB, useTheme, Card, Chip, ActivityIndicator, Divider, Button } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { useFocusEffect } from '@react-navigation/native';
-import { SPACING } from '@utils/constants';
+import { SPACING } from '../utils/constants';
 import { getUserSessions } from '../services/api/session.service';
-import { Session } from '../types/models';
+import { Session, SessionStatus } from '../types/models';
 import useAuth from '../hooks/useAuth';
 import { SessionsStackNavigationProp } from '../navigation/types';
 
@@ -38,7 +38,7 @@ const SessionsScreen = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<SessionStatus | null>(null);
 
   /**
    * Fetches sessions from the backend
@@ -74,7 +74,7 @@ const SessionsScreen = () => {
   /**
    * Handles status filter chip press
    */
-  const handleStatusPress = useCallback((status: string | null) => {
+  const handleStatusPress = useCallback((status: SessionStatus | null) => {
     setSelectedStatus(status);
   }, []);
 
@@ -176,6 +176,14 @@ const SessionsScreen = () => {
           icon="check"
         >
           Completed
+        </Chip>
+        <Chip
+          mode={selectedStatus === 'cancelled' ? 'flat' : 'outlined'}
+          onPress={() => handleStatusPress('cancelled')}
+          style={styles.chip}
+          icon="close"
+        >
+          Cancelled
         </Chip>
       </ScrollView>
 

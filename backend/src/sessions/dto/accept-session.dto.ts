@@ -9,7 +9,7 @@ import { SessionExerciseDto } from './create-session.dto';
  */
 export class AcceptSessionDto {
   @IsBoolean()
-  accepted: boolean; // true to accept, false to decline
+  accepted!: boolean; // true to accept, false to decline
 
   @IsOptional()
   @IsArray()

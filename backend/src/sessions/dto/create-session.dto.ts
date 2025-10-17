@@ -3,6 +3,7 @@ import {
   IsNotEmpty,
   IsArray,
   ArrayMinSize,
+  ArrayUnique,
   ValidateNested,
   IsInt,
   Min,
@@ -26,6 +27,7 @@ export class SessionExerciseDto {
   @IsInt()
   @Min(1)
   @Max(10)
+  @Type(() => Number)
   targetSets!: number;
 }
 
@@ -41,6 +43,9 @@ export class CreateSessionDto {
 
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayUnique((exercise: SessionExerciseDto) => exercise.exerciseId, {
+    message: 'Exercises must have unique exerciseIds',
+  })
   @ValidateNested({ each: true })
   @Type(() => SessionExerciseDto)
   exercises!: SessionExerciseDto[];

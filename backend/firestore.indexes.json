@@ -17,6 +17,10 @@
       "collectionId": "sessions",
       "fields": [
         {
+          "fieldPath": "participantUids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
           "fieldPath": "status",
           "order": "ASCENDING"
         },

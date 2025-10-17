@@ -1,4 +1,5 @@
 import { IsString, IsNotEmpty, IsNumber, IsInt, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /**
  * DTO for recording a completed set
@@ -9,17 +10,19 @@ import { IsString, IsNotEmpty, IsNumber, IsInt, Min } from 'class-validator';
 export class RecordSetDto {
   @IsString()
   @IsNotEmpty()
-  exerciseId: string;
+  exerciseId!: string;
 
   @IsInt()
   @Min(1)
-  setNumber: number;
+  setNumber!: number;
 
   @IsNumber()
   @Min(0)
-  weight: number; // in kilograms
+  @Type(() => Number)
+  weight!: number; // in kilograms
 
   @IsInt()
   @Min(0)
-  reps: number;
+  @Type(() => Number)
+  reps!: number;
 }
