@@ -44,6 +44,51 @@ export interface AvatarState {
 }
 
 /**
+ * Avatar visual customization configuration.
+ * Stores user's visual preferences for their avatar appearance.
+ * This is separate from progression data (avatarLevel, avatarMuscleGroups).
+ * Matches the backend User.avatarConfig structure.
+ */
+export interface AvatarConfig {
+  /** Body type affecting base avatar proportions */
+  bodyType?: 'slim' | 'athletic' | 'muscular' | 'heavy';
+  
+  /** Skin tone hex color code for avatar skin color */
+  skinTone?: string;
+  
+  /** Hair style determining hair shape/length */
+  hairStyle?: 'bald' | 'short' | 'medium' | 'long' | 'curly' | 'buzz';
+  
+  /** Hair color hex color code */
+  hairColor?: string;
+  
+  /** Clothing style determining outfit type */
+  clothingStyle?: 'tank' | 'tshirt' | 'hoodie' | 'sports-bra' | 'compression';
+  
+  /** Clothing color hex color code */
+  clothingColor?: string;
+}
+
+/**
+ * 3D-specific avatar configuration (for future use).
+ * These are optional enhancements for 3D rendering and don't affect 2D fallback.
+ * Extends the basic AvatarConfig with 3D-specific settings.
+ */
+export interface Avatar3DConfig extends AvatarConfig {
+  /** Optional URL for custom 3D model */
+  modelUrl?: string;
+  
+  /** Quality level for LOD (Level of Detail) selection */
+  quality?: 'low' | 'medium' | 'high';
+  
+  /** Whether to enable shadows in 3D rendering */
+  enableShadows?: boolean;
+  
+  /** Whether to enable post-processing effects */
+  enablePostProcessing?: boolean;
+}
+
+/**
  * User interface matching the backend User structure.
  * Represents a user profile stored in Firestore.
  */
@@ -83,6 +128,9 @@ export interface User {
   
   /** Muscle group development levels (1-10) for each body part */
   avatarMuscleGroups?: MuscleGroups;
+  
+  /** Avatar visual customization configuration */
+  avatarConfig?: AvatarConfig;
   
   /** Timestamp of the last avatar level-up event */
   lastEvolution?: Date | string | { seconds: number; nanoseconds: number };

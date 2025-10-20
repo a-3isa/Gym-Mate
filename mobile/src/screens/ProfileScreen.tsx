@@ -4,7 +4,7 @@ import { Text, Avatar, List, useTheme, ActivityIndicator } from 'react-native-pa
 import { useNavigation } from '@react-navigation/native';
 import useAuth from '@hooks/useAuth';
 import useAvatar from '@hooks/useAvatar';
-import AvatarDisplay from '@components/avatar/AvatarDisplay';
+import Avatar3DDisplay from '@components/avatar/Avatar3DDisplay';
 import AvatarProgressCard from '@components/avatar/AvatarProgressCard';
 import { SPACING } from '@utils/constants';
 import { ProfileStackNavigationProp } from '@navigation/types';
@@ -67,14 +67,14 @@ const ProfileScreen = () => {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
-      {/* Avatar Display with muscle groups or fallback */}
+      {/* Avatar Display with muscle groups or fallback - now supports 3D rendering with automatic fallback to 2D */}
       {avatarLoading ? (
         <ActivityIndicator size="large" style={styles.avatar} />
       ) : avatarState ? (
-        <AvatarDisplay 
-          muscleGroups={avatarState.muscleGroups} 
-          size={96} 
-          style={styles.avatar}
+        <Avatar3DDisplay 
+          muscleGroups={avatarState.muscleGroups}
+          avatarConfig={user?.avatarConfig} 
+          size={96}
         />
       ) : user?.photoURL ? (
         <Avatar.Image
@@ -109,6 +109,19 @@ const ProfileScreen = () => {
           title="Edit Profile" 
           left={(props) => <List.Icon {...props} icon="account-edit" />}
           onPress={() => navigation.navigate('EditProfile')}
+          disabled={isLoggingOut}
+        />
+        {/* Navigate to avatar customization screen where users can change body type, skin tone, hair, and clothing */}
+        <List.Item 
+          title="Customize Avatar" 
+          left={(props) => <List.Icon {...props} icon="palette" />}
+          onPress={() => navigation.navigate('CustomizeAvatar')}
+          disabled={isLoggingOut}
+        />
+        <List.Item 
+          title="3D Avatar Settings" 
+          left={(props) => <List.Icon {...props} icon="cube-outline" />}
+          onPress={() => navigation.navigate('Avatar3DSettings')}
           disabled={isLoggingOut}
         />
         <List.Item 

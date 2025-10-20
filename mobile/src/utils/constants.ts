@@ -97,3 +97,85 @@ export const MUSCLE_GROUP_LABELS = {
   arms: 'Arms',
   core: 'Core',
 } as const;
+
+/**
+ * Avatar customization constants providing preset options for avatar customization UI
+ */
+
+/** Avatar body type options affecting base proportions */
+export const AVATAR_BODY_TYPES = [
+  { key: 'slim', label: 'Slim', description: 'Lean build' },
+  { key: 'athletic', label: 'Athletic', description: 'Balanced proportions' },
+  { key: 'muscular', label: 'Muscular', description: 'Broad build' },
+  { key: 'heavy', label: 'Heavy', description: 'Larger frame' },
+] as const;
+
+/** Avatar skin tone preset colors */
+export const AVATAR_SKIN_TONES = [
+  { key: 'light', label: 'Light', color: '#FFE0BD' },
+  { key: 'fair', label: 'Fair', color: '#FFCD94' },
+  { key: 'medium', label: 'Medium', color: '#E0AC69' },
+  { key: 'olive', label: 'Olive', color: '#C68642' },
+  { key: 'tan', label: 'Tan', color: '#8D5524' },
+  { key: 'brown', label: 'Brown', color: '#6B4423' },
+  { key: 'dark', label: 'Dark', color: '#4A2C2A' },
+] as const;
+
+/** Avatar hair style options */
+export const AVATAR_HAIR_STYLES = [
+  { key: 'bald', label: 'Bald', icon: 'head' },
+  { key: 'short', label: 'Short', icon: 'hair-dryer' },
+  { key: 'medium', label: 'Medium', icon: 'hair-dryer-outline' },
+  { key: 'long', label: 'Long', icon: 'hair-dryer' },
+  { key: 'curly', label: 'Curly', icon: 'hair-dryer' },
+  { key: 'buzz', label: 'Buzz Cut', icon: 'head-outline' },
+] as const;
+
+/** Avatar hair color preset colors */
+export const AVATAR_HAIR_COLORS = [
+  { key: 'black', label: 'Black', color: '#1A1A1A' },
+  { key: 'brown', label: 'Brown', color: '#4A3728' },
+  { key: 'blonde', label: 'Blonde', color: '#F5E6C8' },
+  { key: 'red', label: 'Red', color: '#A52A2A' },
+  { key: 'gray', label: 'Gray', color: '#808080' },
+  { key: 'white', label: 'White', color: '#F0F0F0' },
+] as const;
+
+/** Avatar clothing style options */
+export const AVATAR_CLOTHING_STYLES = [
+  { key: 'tank', label: 'Tank Top', icon: 'tshirt-crew' },
+  { key: 'tshirt', label: 'T-Shirt', icon: 'tshirt-crew-outline' },
+  { key: 'hoodie', label: 'Hoodie', icon: 'hanger' },
+  { key: 'sports-bra', label: 'Sports Bra', icon: 'tshirt-crew' },
+  { key: 'compression', label: 'Compression', icon: 'tshirt-crew-outline' },
+] as const;
+
+/** Avatar clothing color preset colors */
+export const AVATAR_CLOTHING_COLORS = [
+  { key: 'black', label: 'Black', color: '#000000' },
+  { key: 'white', label: 'White', color: '#FFFFFF' },
+  { key: 'red', label: 'Red', color: '#EF4444' },
+  { key: 'blue', label: 'Blue', color: '#3B82F6' },
+  { key: 'green', label: 'Green', color: '#10B981' },
+  { key: 'yellow', label: 'Yellow', color: '#F59E0B' },
+  { key: 'purple', label: 'Purple', color: '#8B5CF6' },
+  { key: 'gray', label: 'Gray', color: '#6B7280' },
+] as const;
+
+/**
+ * 3D rendering constants controlling 3D avatar behavior and performance monitoring
+ */
+export const AVATAR_3D = {
+  /** Default quality setting for 3D rendering */
+  DEFAULT_QUALITY: 'medium' as const,
+  /** Minimum acceptable FPS for 3D rendering */
+  FPS_THRESHOLD: 25,
+  /** How often to check FPS in milliseconds */
+  PERFORMANCE_CHECK_INTERVAL: 5000,
+  /** Number of consecutive low FPS readings before auto-downgrade */
+  AUTO_DOWNGRADE_THRESHOLD: 5,
+  /** Minimum RAM in GB required for 3D on Android */
+  MIN_RAM_GB: 3,
+  /** How long to cache capability detection in days */
+  CACHE_DURATION_DAYS: 7,
+} as const;

@@ -3,6 +3,13 @@ import { Session, SetRecord } from '../interfaces/session.interface';
 
 export type SerializedTimestamp = string;
 
+export const serializeTimestamp = (timestamp: Timestamp): SerializedTimestamp =>
+  timestamp.toDate().toISOString();
+
+export const serializeOptionalTimestamp = (
+  timestamp?: Timestamp,
+): SerializedTimestamp | undefined => (timestamp ? serializeTimestamp(timestamp) : undefined);
+
 export type SerializedSetRecord = Omit<SetRecord, 'completedAt'> & {
   completedAt: SerializedTimestamp;
 };
@@ -16,13 +23,6 @@ export type SerializedSession = Omit<
   completedAt?: SerializedTimestamp;
   sets: SerializedSetRecord[];
 };
-
-export const serializeTimestamp = (timestamp: Timestamp): SerializedTimestamp =>
-  timestamp.toDate().toISOString();
-
-export const serializeOptionalTimestamp = (
-  timestamp?: Timestamp,
-): SerializedTimestamp | undefined => (timestamp ? serializeTimestamp(timestamp) : undefined);
 
 /**
  * Serializes Firestore Timestamp fields to ISO strings to ensure safe JSON transport.

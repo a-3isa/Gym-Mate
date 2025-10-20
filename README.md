@@ -56,7 +56,7 @@ Gym-Mate/
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/a-3isa/Gym-Mate.git
 cd Gym-Mate
 
 # Install root dependencies (includes Husky setup)
@@ -240,6 +240,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🎯 Roadmap
 
 ### Upcoming Features
+- [ ] **Workout History Screen**: Dedicated screen showing completed workout sessions with AvatarDisplay for each entry using user's avatarMuscleGroups
 - [ ] Exercise video demonstrations
 - [ ] Custom workout templates  
 - [ ] Group challenges and competitions

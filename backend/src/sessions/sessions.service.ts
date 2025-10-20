@@ -435,37 +435,11 @@ export class SessionsService {
         this.sessionGateway.emitSessionStart(sessionId, userId);
       }
       if (status === SessionStatus.COMPLETED && updatedSession.completedAt) {
-        // Update avatars for all participants when session completes
-        try {
-          for (const participantUid of updatedSession.participantUids) {
-            const evolution = await this.avatarService.updateAvatarAfterSession(
-              participantUid,
-              sessionId,
-            );
-            if (evolution) {
-              this.logger.log(
-                `Avatar level-up for user ${participantUid}: Level ${evolution.previousLevel} → ${evolution.newLevel}`,
-              );
-              // Emit avatar evolution WebSocket event
-              this.sessionGateway.emitAvatarEvolution(sessionId, participantUid, {
-                previousLevel: evolution.previousLevel,
-                newLevel: evolution.newLevel,
-                muscleGroupsGained: evolution.muscleGroupsGained,
-              });
-            }
-          }
-        } catch (error) {
-          this.logger.error(
-            `Failed to update avatars after manual complete for session ${sessionId}`,
-            error,
-          );
-          // Don't throw - avatar updates shouldn't break session completion
-        }
-
-        const completedAtIso = serializeOptionalTimestamp(updatedSession.completedAt);
-        if (completedAtIso) {
-          this.sessionGateway.emitSessionEnd(sessionId, completedAtIso);
-        }
+        await this.updateAvatarsAndEmitEvolution(updatedSession, sessionId, 'manual complete');
+      }
+      const completedAtIso = serializeOptionalTimestamp(updatedSession.completedAt);
+      if (completedAtIso) {
+        this.sessionGateway.emitSessionEnd(sessionId, completedAtIso);
       }
       this.sessionGateway.emitSessionUpdate(sessionId, updatedSession);
     } catch (error) {
@@ -651,31 +625,7 @@ export class SessionsService {
       }
       if (updatedSession.status === SessionStatus.COMPLETED && updatedSession.completedAt) {
         // Update avatars for all participants when session completes
-        try {
-          for (const participantUid of updatedSession.participantUids) {
-            const evolution = await this.avatarService.updateAvatarAfterSession(
-              participantUid,
-              sessionId,
-            );
-            if (evolution) {
-              this.logger.log(
-                `Avatar level-up for user ${participantUid}: Level ${evolution.previousLevel} → ${evolution.newLevel}`,
-              );
-              // Emit avatar evolution WebSocket event
-              this.sessionGateway.emitAvatarEvolution(sessionId, participantUid, {
-                previousLevel: evolution.previousLevel,
-                newLevel: evolution.newLevel,
-                muscleGroupsGained: evolution.muscleGroupsGained,
-              });
-            }
-          }
-        } catch (error) {
-          this.logger.error(
-            `Failed to update avatars after auto-complete for session ${sessionId}`,
-            error,
-          );
-          // Don't throw - avatar updates shouldn't break session completion
-        }
+        await this.updateAvatarsAndEmitEvolution(updatedSession, sessionId, 'auto-complete');
 
         const completedAtIso = serializeOptionalTimestamp(updatedSession.completedAt);
         if (completedAtIso) {
@@ -770,28 +720,8 @@ export class SessionsService {
     const updatedSession = await this.getSessionById(sessionId, userId);
     this.logger.log(`Session ${sessionId} completed by ${userId}`);
 
-    // Trigger avatar update after session completion
-    // Avatar updates are non-critical - failures should be logged but not thrown
-    try {
-      const evolution = await this.avatarService.updateAvatarAfterSession(userId, sessionId);
-      if (evolution) {
-        this.logger.log(
-          `Avatar level-up for user ${userId}: Level ${evolution.previousLevel} → ${evolution.newLevel}`,
-        );
-        // Emit avatar evolution WebSocket event for immediate client feedback
-        this.sessionGateway.emitAvatarEvolution(sessionId, userId, {
-          previousLevel: evolution.previousLevel,
-          newLevel: evolution.newLevel,
-          muscleGroupsGained: evolution.muscleGroupsGained,
-        });
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to update avatar for user ${userId} after session ${sessionId}`,
-        error,
-      );
-      // Don't throw - avatar updates shouldn't break session completion
-    }
+    // Update avatars for all participants when session completes
+    await this.updateAvatarsAndEmitEvolution(updatedSession, sessionId, 'manual complete');
     try {
       const completedAtIso = serializeOptionalTimestamp(updatedSession.completedAt);
       if (completedAtIso) {
@@ -803,5 +733,50 @@ export class SessionsService {
       this.logger.error(`WS emit failed after completeSession ${sessionId}: ${message}`);
     }
     return updatedSession;
+  }
+
+  /**
+   * Helper method to update avatars and emit evolution events for all session participants
+   * @param session - The completed session
+   * @param sessionId - The session ID
+   * @param context - Context string for logging (e.g., 'manual complete', 'auto-complete')
+   */
+  private async updateAvatarsAndEmitEvolution(
+    session: Session,
+    sessionId: string,
+    context: string,
+  ): Promise<void> {
+    try {
+      const avatarUpdateResults = await Promise.all(
+        session.participantUids.map((uid) =>
+          this.avatarService.updateAvatarAfterSession(uid, sessionId).catch((err) => {
+            this.logger.error(`Failed to update avatar for user ${uid}`, err);
+            return null;
+          }),
+        ),
+      );
+
+      // Iterate results with corresponding participant UIDs to emit evolution events
+      avatarUpdateResults.forEach((evolution, index) => {
+        const participantUid = session.participantUids[index];
+        if (evolution) {
+          this.logger.log(
+            `Avatar level-up for user ${participantUid}: Level ${evolution.previousLevel} → ${evolution.newLevel}`,
+          );
+          // Emit avatar evolution WebSocket event
+          this.sessionGateway.emitAvatarEvolution(sessionId, participantUid, {
+            previousLevel: evolution.previousLevel,
+            newLevel: evolution.newLevel,
+            muscleGroupsGained: evolution.muscleGroupsGained,
+          });
+        }
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to update avatars after ${context} for session ${sessionId}`,
+        error,
+      );
+      // Don't throw - avatar updates shouldn't break session completion
+    }
   }
 }

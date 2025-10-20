@@ -300,7 +300,7 @@ The backend implements a gamified avatar system that evolves based on workout da
 - Muscle level (1-10) based on total volume and frequency for that category
 - Every 10,000 volume units = 1 muscle level (max 10)
 
-### API Endpoint
+### API Endpoints
 
 - **GET** `/api/auth/avatar`: Get calculated avatar state
   - **Headers**: `Authorization: Bearer <Firebase ID Token>`
@@ -324,6 +324,53 @@ The backend implements a gamified avatar system that evolves based on workout da
     }
     ```
   - **Requires authentication**
+
+### Avatar Customization
+
+The avatar system supports visual customization separate from progression mechanics. Users can customize their avatar's appearance including body type, skin tone, hair, and clothing.
+
+**PATCH** `/api/auth/avatar-config`: Update avatar visual customization
+- **Headers**: `Authorization: Bearer <Firebase ID Token>`
+- **Request Body** (UpdateAvatarConfigDto - all fields optional):
+  ```json
+  {
+    "bodyType": "athletic",
+    "skinTone": "#FFE0BD",
+    "hairStyle": "short",
+    "hairColor": "#4A3728",
+    "clothingStyle": "tshirt",
+    "clothingColor": "#3B82F6"
+  }
+  ```
+- **Response**: Updated User object with avatarConfig field
+- **Allowed Values**:
+  - `bodyType`: `slim`, `athletic`, `muscular`, `heavy`
+  - `skinTone`: Hex color format (#RRGGBB)
+  - `hairStyle`: `bald`, `short`, `medium`, `long`, `curly`, `buzz`
+  - `hairColor`: Hex color format (#RRGGBB)
+  - `clothingStyle`: `tank`, `tshirt`, `hoodie`, `sports-bra`, `compression`
+  - `clothingColor`: Hex color format (#RRGGBB)
+- **Notes**: 
+  - Partial updates supported (only provided fields are updated)
+  - Customization is visual only and doesn't affect progression
+  - Avatar progression (muscle growth) is rendered on top of customization
+
+**Example Request**:
+```bash
+curl -X PATCH http://localhost:3000/api/auth/avatar-config \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bodyType": "muscular",
+    "skinTone": "#E0AC69"
+  }'
+```
+
+**Troubleshooting Avatar Customization**:
+- **Invalid hex color format**: Ensure colors are in #RRGGBB format (6 hex digits)
+- **Unsupported body type**: Check that bodyType is one of the allowed values
+- **Validation errors**: Review error message for specific field issues
+- **Changes not persisting**: Verify the updatedAt timestamp is updating in Firestore
 
 ### Avatar Evolution Events
 

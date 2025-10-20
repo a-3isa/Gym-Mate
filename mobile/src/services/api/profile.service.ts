@@ -1,11 +1,18 @@
 import apiClient from './client';
-import { User } from '../../types/models';
+import { User, MuscleGroups, AvatarConfig } from '../../types/models';
 
 export interface PublicUser {
   uid: string;
   displayName?: string;
   photoURL?: string;
   email: string;
+}
+
+export interface PublicUserWithAvatar {
+  uid: string;
+  displayName?: string;
+  photoURL?: string;
+  avatarMuscleGroups: MuscleGroups;
 }
 
 /**
@@ -24,6 +31,33 @@ export async function updateProfile(updates: {
   } catch (error: any) {
     console.error('Failed to update profile:', error);
     throw new Error(error.response?.data?.message || 'Failed to update profile');
+  }
+}
+
+/**
+ * Update user's avatar visual customization configuration.
+ * This updates the user's avatar visual appearance (body type, skin tone, hair, clothing).
+ * Partial updates are supported - only provided fields are sent.
+ * @param avatarConfig Partial avatar configuration to update
+ * @returns Promise<User> Updated user object with new avatarConfig
+ */
+export async function updateAvatarConfig(avatarConfig: Partial<AvatarConfig>): Promise<User> {
+  try {
+    const response = await apiClient.patch<User>('/auth/avatar-config', avatarConfig);
+    return response.data;
+  } catch (error: any) {
+    console.error('Failed to update avatar config:', error);
+    
+    // Handle specific HTTP status codes
+    if (error.response?.status === 400) {
+      // Validation error - extract specific message if available
+      const message = error.response?.data?.message || 'Invalid avatar configuration values';
+      throw new Error(message);
+    } else if (error.response?.status === 401) {
+      throw new Error('Authentication required');
+    }
+    
+    throw new Error(error.response?.data?.message || 'Failed to update avatar customization');
   }
 }
 
@@ -201,5 +235,15 @@ export async function removeFriend(friendUid: string): Promise<{
   } catch (error: any) {
     console.error('Failed to remove friend:', error);
     throw new Error(error.response?.data?.message || 'Failed to remove friend');
+  }
+}
+
+export async function getPublicUser(uid: string): Promise<PublicUserWithAvatar> {
+  try {
+    const response = await apiClient.get<PublicUserWithAvatar>(`/auth/users/${uid}/public`);
+    return response.data;
+  } catch (error: any) {
+    console.error('Failed to fetch public user:', error);
+    throw new Error(error.response?.data?.message || 'Failed to load user');
   }
 }

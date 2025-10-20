@@ -87,4 +87,10 @@ export const SOCKET_EVENTS = {
    * Payload: { message: string, code?: string }
    */
   ERROR: 'server:error',
+
+  /**
+   * Emitted when avatar evolution occurs after level up
+   * Payload: AvatarEvolution object with previous level, new level, and muscle groups gained
+   */
+  AVATAR_EVOLUTION: 'avatar:evolution',
 } as const;

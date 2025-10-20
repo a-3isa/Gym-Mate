@@ -61,9 +61,9 @@ export interface AvatarState {
 
   /**
    * Timestamp of the last avatar state calculation
-   * Used for cache validation and update tracking
+   * Serialized as ISO-8601 string for transport stability
    */
-  lastUpdated: Timestamp;
+  lastUpdated: string;
 }
 
 /**

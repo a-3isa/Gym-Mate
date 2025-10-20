@@ -16,6 +16,10 @@ export type AuthStackParamList = {
 export type ProfileStackParamList = {
   Profile: undefined;
   EditProfile: undefined;
+  /** Customize Avatar screen - allows users to customize their avatar's visual appearance (body type, skin tone, hair, clothing) */
+  CustomizeAvatar: undefined;
+  /** 3D Avatar Settings screen - allows users to configure 3D rendering preferences and view performance metrics */
+  Avatar3DSettings: undefined;
   FriendList: undefined;
   AddFriend: undefined;
 };

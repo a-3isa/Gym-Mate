@@ -27,7 +27,7 @@ import { AvatarService } from '../progress';
 import { FirebaseAuthGuard } from '../common/guards/firebase-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User } from '../common/interfaces/user.interface';
-import { UpdateProfileDto, AddFriendDto } from './dto';
+import { UpdateProfileDto, AddFriendDto, UpdateAvatarConfigDto } from './dto';
 import { UserNotFoundError, AlreadyFriendsError, SelfAddForbiddenError } from './auth.errors';
 
 type PublicUser = Pick<User, 'uid' | 'displayName' | 'photoURL' | 'email'>;
@@ -149,6 +149,49 @@ export class AuthController {
       this.logger.error(`Failed to update profile for user ${user.uid}: ${message}`);
 
       throw new HttpException('Failed to update profile', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  /**
+   * Update the authenticated user's avatar visual customization.
+   * This endpoint updates the user's avatar visual appearance (body type, skin tone, hair, clothing).
+   * This is separate from avatar progression (level, XP, muscle groups).
+   * Partial updates are supported - only provided fields are updated.
+   *
+   * @param updateAvatarConfigDto - The avatar customization configuration to update
+   * @param user - The authenticated user information
+   * @returns The updated user profile with new avatarConfig
+   */
+  @Patch('avatar-config')
+  @UseGuards(FirebaseAuthGuard)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async updateAvatarConfig(
+    @Body() updateAvatarConfigDto: UpdateAvatarConfigDto,
+    @CurrentUser() user: { uid: string },
+  ): Promise<User> {
+    try {
+      this.logger.debug(`Updating avatar config for user ${user.uid}`);
+
+      const updatedUser = await this.authService.updateAvatarConfig(
+        user.uid,
+        updateAvatarConfigDto,
+      );
+
+      return updatedUser;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to update avatar config for user ${user.uid}: ${message}`);
+
+      // Check for validation errors
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      // Return 500 for other unexpected errors
+      throw new HttpException(
+        'Failed to update avatar configuration',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -290,6 +333,29 @@ export class AuthController {
       this.logger.error(`Failed to get friends for user ${user.uid}: ${message}`);
 
       throw new HttpException('Failed to retrieve friends', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Get('users/:uid/public')
+  @UseGuards(FirebaseAuthGuard)
+  async getPublicUser(@Param('uid') uid: string) {
+    try {
+      const user = await this.authService.getPublicUserWithAvatar(uid);
+
+      if (!user) {
+        throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+      }
+
+      return user;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to get public user ${uid}: ${message}`);
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException('Failed to retrieve user profile', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 

@@ -81,6 +81,27 @@ export interface User {
   };
 
   /**
+   * Avatar visual customization configuration.
+   * Stores user's visual preferences for their avatar appearance.
+   * This is separate from progression data (avatarLevel, avatarMuscleGroups).
+   * These choices are applied as overlays/modifications to the base avatar rendering.
+   */
+  avatarConfig?: {
+    /** Body type: affects base avatar proportions */
+    bodyType?: 'slim' | 'athletic' | 'muscular' | 'heavy';
+    /** Skin tone: hex color code for avatar skin color */
+    skinTone?: string;
+    /** Hair style: determines hair shape/length */
+    hairStyle?: 'bald' | 'short' | 'medium' | 'long' | 'curly' | 'buzz';
+    /** Hair color: hex color code for hair */
+    hairColor?: string;
+    /** Clothing style: determines outfit type */
+    clothingStyle?: 'tank' | 'tshirt' | 'hoodie' | 'sports-bra' | 'compression';
+    /** Clothing color: hex color code for outfit */
+    clothingColor?: string;
+  };
+
+  /**
    * Timestamp of the last avatar level-up event
    * Used for triggering evolution notifications and tracking progression milestones
    */

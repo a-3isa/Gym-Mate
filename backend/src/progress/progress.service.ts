@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, Transaction } from 'firebase-admin/firestore';
 import { FirestoreService } from '../firebase/services/firestore.service';
 import { COLLECTIONS } from '../common/constants/firestore.constants';
 import {
@@ -8,6 +8,7 @@ import {
   ExerciseProgress,
 } from '../common/interfaces/progress.interface';
 import { Session, SetRecord } from '../common/interfaces/session.interface';
+import { Exercise } from '../common/interfaces/exercise.interface';
 
 /**
  * Service for tracking user workout progress and statistics
@@ -42,6 +43,7 @@ export class ProgressService {
         workoutHistory: [],
         exerciseProgress: {},
         bodyMetricsHistory: [],
+        lifetimeVolume: 0,
         updatedAt: Timestamp.now(),
       };
 
@@ -63,26 +65,18 @@ export class ProgressService {
    */
   async updateProgressAfterSession(userId: string, session: Session): Promise<void> {
     try {
-      // We'll use individual updates instead of batch for now
-
-      const progress = await this.getOrCreateProgress(userId);
-
-      // Calculate workout summary
       const duration =
         session.completedAt && session.startedAt
-          ? (session.completedAt.toMillis() - session.startedAt.toMillis()) / 1000 / 60 // in minutes
+          ? (session.completedAt.toMillis() - session.startedAt.toMillis()) / 1000 / 60
           : 0;
 
-      // Filter sets to include only the user's own sets
       const userSets = session.sets?.filter((set) => set.participantUid === userId) || [];
-
       const exercisesCompleted = new Set(userSets.map((s) => s.exerciseId)).size;
-
       const totalSets = userSets.length;
-
-      const totalVolume = userSets.reduce((total, set: SetRecord) => {
-        return total + set.weight * set.reps;
-      }, 0);
+      const totalVolume = userSets.reduce(
+        (total, set: SetRecord) => total + set.weight * set.reps,
+        0,
+      );
 
       const workoutSummary: WorkoutSummary = {
         sessionId: session.id || '',
@@ -93,56 +87,123 @@ export class ProgressService {
         totalVolume,
       };
 
-      // Update workout history (keep last 100 workouts)
-      const updatedHistory = [workoutSummary, ...(progress.workoutHistory || []).slice(0, 99)];
+      const shouldIncrement = userSets.length > 0;
+      const currentStreak = shouldIncrement
+        ? await this.calculateStreak(userId, session.completedAt)
+        : undefined;
 
-      // Calculate and update streak
-      const currentStreak = await this.calculateStreak(userId, session.completedAt);
-      const longestStreak = Math.max(currentStreak, progress.longestStreak || 0);
+      await this.firestoreService.runTransaction(async (transaction) => {
+        const progressRef = this.firestoreService.getCollection(COLLECTIONS.PROGRESS).doc(userId);
+        const progressSnap = await transaction.get(progressRef);
 
-      // Update exercise progress and personal records
-      const exerciseProgress = { ...(progress.exerciseProgress || {}) };
+        let progressData: Omit<UserProgress, 'uid'>;
 
-      if (userSets.length > 0) {
-        for (const set of userSets) {
-          const exerciseId = set.exerciseId;
+        if (progressSnap.exists) {
+          progressData = progressSnap.data() as Omit<UserProgress, 'uid'>;
+        } else {
+          progressData = {
+            totalWorkouts: 0,
+            currentStreak: 0,
+            longestStreak: 0,
+            workoutHistory: [],
+            exerciseProgress: {},
+            bodyMetricsHistory: [],
+            lifetimeVolume: 0,
+            updatedAt: Timestamp.now(),
+          };
 
-          if (!exerciseProgress[exerciseId]) {
-            exerciseProgress[exerciseId] = {
-              exerciseId,
-              exerciseName: '', // Will be updated separately
-              totalVolume: 0,
-              personalRecord: {
-                weight: 0,
-                reps: 0,
-              },
-              lastPerformed: Timestamp.now(),
-            };
-          }
-
-          const ep = exerciseProgress[exerciseId];
-          ep.totalVolume += set.weight * set.reps;
-          ep.lastPerformed = session.completedAt || Timestamp.now();
-
-          // Update personal records
-          if (set.weight > ep.personalRecord.weight) {
-            ep.personalRecord.weight = set.weight;
-            ep.personalRecord.reps = set.reps;
-          } else if (set.weight === ep.personalRecord.weight && set.reps > ep.personalRecord.reps) {
-            ep.personalRecord.reps = set.reps;
-          }
+          transaction.set(progressRef, progressData);
         }
-      }
 
-      // Update progress document
-      await this.firestoreService.updateDocument(COLLECTIONS.PROGRESS, userId, {
-        totalWorkouts: (progress.totalWorkouts || 0) + 1,
-        currentStreak,
-        longestStreak,
-        workoutHistory: updatedHistory,
-        exerciseProgress,
-        updatedAt: Timestamp.now(),
+        const exerciseProgress = { ...(progressData.exerciseProgress || {}) } as Record<
+          string,
+          ExerciseProgress
+        >;
+
+        if (shouldIncrement) {
+          const updatedHistory = [
+            workoutSummary,
+            ...(progressData.workoutHistory || []).slice(0, 99),
+          ];
+
+          const categoryCache = new Map<string, string | null>();
+
+          const sessionExerciseLookup = new Map(
+            (session.exercises || []).map((exercise) => [
+              exercise.exerciseId,
+              exercise.exerciseName,
+            ]),
+          );
+
+          for (const set of userSets) {
+            const exerciseId = set.exerciseId;
+
+            if (!exerciseProgress[exerciseId]) {
+              exerciseProgress[exerciseId] = {
+                exerciseId,
+                exerciseName: sessionExerciseLookup.get(exerciseId) || '',
+                category: undefined,
+                totalVolume: 0,
+                personalRecord: {
+                  weight: 0,
+                  reps: 0,
+                },
+                lastPerformed: Timestamp.now(),
+              };
+            }
+
+            const ep = exerciseProgress[exerciseId];
+            if (!ep.exerciseName) {
+              ep.exerciseName = sessionExerciseLookup.get(exerciseId) || ep.exerciseName;
+            }
+
+            if (!ep.category) {
+              const category = await this.resolveExerciseCategory(
+                transaction,
+                exerciseId,
+                categoryCache,
+              );
+              if (category) {
+                ep.category = category;
+              }
+            }
+
+            ep.totalVolume += set.weight * set.reps;
+            ep.lastPerformed = session.completedAt || Timestamp.now();
+
+            if (set.weight > ep.personalRecord.weight) {
+              ep.personalRecord.weight = set.weight;
+              ep.personalRecord.reps = set.reps;
+            } else if (
+              set.weight === ep.personalRecord.weight &&
+              set.reps > ep.personalRecord.reps
+            ) {
+              ep.personalRecord.reps = set.reps;
+            }
+          }
+
+          const updates: Partial<Omit<UserProgress, 'uid'>> = {
+            workoutHistory: updatedHistory,
+            exerciseProgress,
+            lifetimeVolume: (progressData.lifetimeVolume || 0) + totalVolume,
+            updatedAt: Timestamp.now(),
+          };
+
+          if (typeof currentStreak === 'number') {
+            updates.totalWorkouts = (progressData.totalWorkouts || 0) + 1;
+            updates.currentStreak = currentStreak;
+            updates.longestStreak = Math.max(currentStreak, progressData.longestStreak || 0);
+          }
+
+          transaction.update(progressRef, updates);
+        } else {
+          // No increments -> do not alter history or exercise progress
+          transaction.update(progressRef, {
+            updatedAt: Timestamp.now(),
+          });
+        }
       });
+
       this.logger.log(`Updated progress for user ${userId} after session ${session.id}`);
     } catch (error) {
       this.logger.error(
@@ -151,6 +212,35 @@ export class ProgressService {
       );
       throw error;
     }
+  }
+
+  private async resolveExerciseCategory(
+    transaction: Transaction,
+    exerciseId: string,
+    cache: Map<string, string | null>,
+  ): Promise<string | null> {
+    if (cache.has(exerciseId)) {
+      return cache.get(exerciseId) ?? null;
+    }
+
+    try {
+      const exerciseRef = this.firestoreService
+        .getCollection<Exercise>(COLLECTIONS.EXERCISES)
+        .doc(exerciseId);
+      const exerciseSnap = await transaction.get(exerciseRef);
+
+      if (exerciseSnap.exists) {
+        const exerciseData = exerciseSnap.data() as Exercise;
+        const category = exerciseData?.category ?? null;
+        cache.set(exerciseId, category);
+        return category;
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to resolve category for exercise ${exerciseId}`, error);
+    }
+
+    cache.set(exerciseId, null);
+    return null;
   }
 
   /**
@@ -184,38 +274,39 @@ export class ProgressService {
         ...doc.data(),
       })) as Session[];
 
-      // Group sessions by date (ignoring time)
+      // Group sessions by UTC date (ignoring time) using ISO date strings
       const workoutDates = new Set<string>();
 
       sessions.forEach((session) => {
         if (session.completedAt) {
-          const date = session.completedAt.toDate();
-          const dateString = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-          workoutDates.add(dateString);
+          // Use UTC date string to avoid timezone issues
+          const isoDateString = session.completedAt.toDate().toISOString().slice(0, 10);
+          workoutDates.add(isoDateString);
         }
       });
 
-      // Convert to sorted array of dates
-      const sortedDates = Array.from(workoutDates)
+      // Convert to sorted array of UTC midnight epochs
+      const sortedDateEpochs = Array.from(workoutDates)
         .map((dateStr) => {
           const [year, month, day] = dateStr.split('-').map(Number);
-          return new Date(year, month, day);
+          // Use Date.UTC to get UTC midnight epoch
+          return Date.UTC(year, month - 1, day); // month is 0-indexed in Date.UTC
         })
-        .sort((a, b) => b.getTime() - a.getTime()); // Most recent first
+        .sort((a, b) => b - a); // Most recent first
 
-      if (sortedDates.length === 0) {
+      if (sortedDateEpochs.length === 0) {
         return 0;
       }
 
-      // Calculate streak
+      // Calculate streak using UTC dates
       let streak = 1;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const now = new Date();
+      const todayUtcEpoch = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 
       // Check if the most recent workout is today or yesterday
-      const mostRecentWorkout = sortedDates[0];
+      const mostRecentWorkoutEpoch = sortedDateEpochs[0];
       const daysSinceLastWorkout = Math.floor(
-        (today.getTime() - mostRecentWorkout.getTime()) / (1000 * 60 * 60 * 24),
+        (todayUtcEpoch - mostRecentWorkoutEpoch) / (1000 * 60 * 60 * 24),
       );
 
       if (daysSinceLastWorkout > 1) {
@@ -223,12 +314,12 @@ export class ProgressService {
         return 0;
       }
 
-      // Count consecutive days
-      for (let i = 1; i < sortedDates.length; i++) {
-        const currentDate = sortedDates[i - 1];
-        const previousDate = sortedDates[i];
+      // Count consecutive days using UTC epochs
+      for (let i = 1; i < sortedDateEpochs.length; i++) {
+        const currentDateEpoch = sortedDateEpochs[i - 1];
+        const previousDateEpoch = sortedDateEpochs[i];
         const daysDifference = Math.floor(
-          (currentDate.getTime() - previousDate.getTime()) / (1000 * 60 * 60 * 24),
+          (currentDateEpoch - previousDateEpoch) / (1000 * 60 * 60 * 24),
         );
 
         if (daysDifference === 1) {

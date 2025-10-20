@@ -15,6 +15,19 @@ interface AvatarProgressCardProps {
 }
 
 /**
+ * Calculates XP required for a specific level (mirrors backend implementation)
+ * @param level - Target level
+ * @returns XP threshold for that level
+ */
+const getXPForLevel = (level: number): number => {
+  if (level <= 1) return 0;
+  if (level === 2) return 500;
+
+  // Exponential growth formula: 500 * (level ^ 1.5)
+  return Math.floor(500 * Math.pow(level, 1.5));
+};
+
+/**
  * AvatarProgressCard displays avatar progression metrics and workout statistics.
  * Shows level, XP progress, current streak, total workouts, and muscle group breakdown.
  * In compact mode, displays only level, XP bar, and streak.
@@ -35,8 +48,11 @@ const AvatarProgressCard: React.FC<AvatarProgressCardProps> = ({
     );
   }
 
+  // Calculate progress within current level
+  const currentLevelStartXP = getXPForLevel(avatarState.level);
+  const nextLevelXP = getXPForLevel(avatarState.level + 1);
   const xpProgress = avatarState.xpToNextLevel > 0
-    ? avatarState.xp / (avatarState.xp + avatarState.xpToNextLevel)
+    ? (avatarState.xp - currentLevelStartXP) / (nextLevelXP - currentLevelStartXP)
     : 1;
 
   if (compact) {
@@ -56,7 +72,7 @@ const AvatarProgressCard: React.FC<AvatarProgressCardProps> = ({
             <View style={styles.xpContainer}>
               <Text variant="bodySmall" style={styles.xpLabel}>
                 {avatarState.xpToNextLevel > 0 
-                  ? `XP: ${avatarState.xp} / ${avatarState.xp + avatarState.xpToNextLevel}`
+                  ? `XP: ${avatarState.xp - currentLevelStartXP} / ${nextLevelXP - currentLevelStartXP}`
                   : `Max Level Reached (${avatarState.xp} XP)`
                 }
               </Text>
@@ -105,7 +121,7 @@ const AvatarProgressCard: React.FC<AvatarProgressCardProps> = ({
             </Text>
             <Text variant="bodySmall" style={styles.xpValue}>
               {avatarState.xpToNextLevel > 0 
-                ? `${avatarState.xp} / ${avatarState.xp + avatarState.xpToNextLevel}`
+                ? `${avatarState.xp - currentLevelStartXP} / ${nextLevelXP - currentLevelStartXP}`
                 : `Max Level (${avatarState.xp} XP)`
               }
             </Text>

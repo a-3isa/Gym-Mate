@@ -3,16 +3,27 @@ import { View, StyleSheet, ScrollView, Alert, Modal as RNModal } from 'react-nat
 import { Card, Text, Button, TextInput, ProgressBar, Chip, ActivityIndicator, Divider, useTheme, Portal, Dialog } from 'react-native-paper';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { getSessionById, recordSet, switchTurn, completeSession } from '../../services/api/session.service';
-import { Session, SessionExercise, SetRecord } from '../../types/models';
+import { Session, SessionExercise, SetRecord, MuscleGroups } from '../../types/models';
+import { AvatarEvolutionPayload } from '../../types/socket';
 import useAuth from '../../hooks/useAuth';
 import useAvatar from '../../hooks/useAvatar';
-import AvatarDisplay from '../../components/avatar/AvatarDisplay';
+import Avatar3DDisplay from '../../components/avatar/Avatar3DDisplay';
 import AvatarEvolutionModal from '../../components/avatar/AvatarEvolutionModal';
 import { SPACING, SOCKET_EVENTS, TIMERS } from '../../utils/constants';
 import useSessionSocket from '../../hooks/useSessionSocket';
 import useTimer from '../../hooks/useTimer';
 import TimerDisplay from '../../components/session/TimerDisplay';
 import { SessionsStackRouteProp, SessionsStackNavigationProp } from '../../navigation/types';
+import { getPublicUser } from '../../services/api/profile.service';
+
+const defaultMuscleGroups: MuscleGroups = {
+  chest: 1,
+  back: 1,
+  legs: 1,
+  shoulders: 1,
+  arms: 1,
+  core: 1,
+};
 
 /**
  * ActiveSessionScreen - Turn-based workout session UI
@@ -38,6 +49,7 @@ const ActiveSessionScreen = () => {
     newLevel: number;
     muscleGroupsGained: string[];
   } | null>(null);
+  const [partnerAvatar, setPartnerAvatar] = useState<MuscleGroups | null>(null);
   const { connect: socketConnect, disconnect: socketDisconnect, on, off, emit } = useSessionSocket();
   const isFetchingRef = useRef(false);
   const completedRef = useRef(false);
@@ -45,7 +57,8 @@ const ActiveSessionScreen = () => {
   const [workoutTimerStartedBy, setWorkoutTimerStartedBy] = useState<string | null>(null);
   const lastStartIntentRef = useRef<{ timerType: string; timestamp: number } | null>(null);
   const lastStopIntentRef = useRef<{ timerType: string; timestamp: number } | null>(null);
-  const preLevelRef = useRef<number | null>(null);
+  const evolutionShownRef = useRef<boolean>(false);
+  const userRef = useRef(user);
 
   const restTimer = useTimer(TIMERS.DEFAULT_REST_DURATION, () => {
     // Optional auto progression: notify stop and optionally switch turn via REST
@@ -76,6 +89,11 @@ const ActiveSessionScreen = () => {
     }
   }, [sessionId]);
 
+  // Update userRef when user changes
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
   // Replace polling with WebSocket connection
   useEffect(() => {
     fetchSession();
@@ -100,15 +118,12 @@ const ActiveSessionScreen = () => {
       if (completedRef.current) return; // Prevent double navigation
       completedRef.current = true;
       
-      // Check for avatar level-up after session completion
-      const previousLevel = avatarState?.level || 1;
-      await refreshAvatar();
-      // Will check new level after refresh in a separate effect
-      
       Alert.alert('Session Completed', 'This workout has ended.');
-      // Navigation will happen after evolution modal if needed
-      if (!showEvolutionModal) {
-        navigation.navigate('Sessions');
+      // Navigation will happen in evolution modal onDismiss if shown, otherwise navigate immediately
+      if (!evolutionShownRef.current) {
+        setTimeout(() => {
+          navigation.navigate('Sessions');
+        }, 500);
       }
     };
     const onSessionStart = () => {
@@ -117,7 +132,7 @@ const ActiveSessionScreen = () => {
     const onTimerStart = (payload: any) => {
       if (payload?.timerType === 'rest') {
         // Guard: if this is our own timer and it's already active, ignore
-        if (payload.startedBy === user?.uid && restTimer.isActive) {
+        if (payload.startedBy === userRef.current?.uid && restTimer.isActive) {
           return;
         }
         setRestTimerStartedBy(payload.startedBy ?? null);
@@ -126,7 +141,7 @@ const ActiveSessionScreen = () => {
         restTimer.start();
       } else if (payload?.timerType === 'workout') {
         // Guard: if this is our own timer and it's already active, ignore
-        if (payload.startedBy === user?.uid && workoutTimer.isActive) {
+        if (payload.startedBy === userRef.current?.uid && workoutTimer.isActive) {
           return;
         }
         setWorkoutTimerStartedBy(payload.startedBy ?? null);
@@ -152,9 +167,10 @@ const ActiveSessionScreen = () => {
       }
       lastStopIntentRef.current = null;
     };
-    const onAvatarEvolution = (payload: any) => {
+    const onAvatarEvolution = (payload: AvatarEvolutionPayload) => {
       // Handle avatar evolution event for current user
-      if (payload?.userId === user?.uid && payload?.previousLevel && payload?.newLevel) {
+      if (payload.userId === userRef.current?.uid && payload.previousLevel && payload.newLevel && !evolutionShownRef.current) {
+        evolutionShownRef.current = true;
         setEvolutionData({
           previousLevel: payload.previousLevel,
           newLevel: payload.newLevel,
@@ -236,6 +252,36 @@ const ActiveSessionScreen = () => {
     s => s.participantUid !== user?.uid && s.exerciseId === currentExercise?.exerciseId
   ) || [];
   const partner = session?.participants.find(p => p.uid !== user?.uid);
+  const partnerUid = partner?.uid;
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!partnerUid) {
+      setPartnerAvatar(null);
+      return;
+    }
+
+    const loadPartnerAvatar = async () => {
+      try {
+        const publicUser = await getPublicUser(partnerUid);
+        if (!isCancelled) {
+          setPartnerAvatar(publicUser.avatarMuscleGroups);
+        }
+      } catch (error) {
+        console.error('Failed to fetch partner avatar', error);
+        if (!isCancelled) {
+          setPartnerAvatar(null);
+        }
+      }
+    };
+
+    void loadPartnerAvatar();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [partnerUid, sessionId]);
 
   /**
    * Records a completed set
@@ -399,18 +445,32 @@ const ActiveSessionScreen = () => {
           onPress: async () => {
             try {
               completedRef.current = true; // Set flag to prevent double navigation
-              const previousLevel = avatarState?.level || 1;
+              
+              // Store previous level before completing session
+              const prevLevel = avatarState?.level;
               
               await completeSession(sessionId);
-              await refreshAvatar();
+              const newAvatar = await refreshAvatar();
               
-              // Check if level increased
-              // The actual level check will be done in a separate effect
-              setTimeout(() => {
-                if (!showEvolutionModal) {
+              // Fallback: Check if avatar level increased and evolution modal hasn't been shown
+              // Use newAvatar if available, otherwise fall back to current avatarState
+              const avatarToCheck = newAvatar || avatarState;
+              if (prevLevel && avatarToCheck?.level && avatarToCheck.level > prevLevel && !evolutionShownRef.current) {
+                evolutionShownRef.current = true;
+                setEvolutionData({
+                  previousLevel: prevLevel,
+                  newLevel: avatarToCheck.level,
+                  muscleGroupsGained: [], // We don't have muscle group diff info in fallback case
+                });
+                setShowEvolutionModal(true);
+              }
+              
+              // Navigation will happen in evolution modal onDismiss if shown, otherwise navigate immediately
+              if (!evolutionShownRef.current) {
+                setTimeout(() => {
                   navigation.navigate('Sessions');
-                }
-              }, 500);
+                }, 500);
+              }
             } catch (error) {
               completedRef.current = false; // Reset flag on error
               Alert.alert('Error', 'Failed to complete session');
@@ -420,30 +480,12 @@ const ActiveSessionScreen = () => {
         },
       ]
     );
-  }, [sessionId, navigation, avatarState, refreshAvatar, showEvolutionModal]);
+  }, [sessionId, navigation, refreshAvatar, avatarState?.level]);
 
-  // Check for level-up after avatar refresh
+  // Reset evolution guard when sessionId changes
   useEffect(() => {
-    if (avatarState && completedRef.current && preLevelRef.current !== null) {
-      const previousLevel = preLevelRef.current;
-      
-      if (avatarState.level > previousLevel) {
-        setEvolutionData({
-          previousLevel,
-          newLevel: avatarState.level,
-          muscleGroupsGained: [], // Could be enhanced to track specific muscle gains
-        });
-        setShowEvolutionModal(true);
-      }
-    }
-  }, [avatarState]);
-
-  // Store initial level when session starts
-  useEffect(() => {
-    if (avatarState && !completedRef.current && preLevelRef.current === null) {
-      preLevelRef.current = avatarState.level;
-    }
-  }, [avatarState]);
+    evolutionShownRef.current = false;
+  }, [sessionId]);
 
   /**
    * Calculates overall progress
@@ -505,16 +547,24 @@ const ActiveSessionScreen = () => {
       <Card style={styles.card}>
         <Card.Content>
           <View style={styles.headerRow}>
-            {/* Show avatar next to partner name */}
             <View style={styles.participantRow}>
-              {avatarState && (
-                <AvatarDisplay 
-                  muscleGroups={avatarState.muscleGroups} 
-                  size={48} 
-                  style={styles.smallAvatar}
+              <View style={styles.avatarGroup}>
+                {/* Current user's avatar with customization - using 2D for small avatars to optimize performance */}
+                <Avatar3DDisplay
+                  muscleGroups={avatarState?.muscleGroups || defaultMuscleGroups}
+                  avatarConfig={user?.avatarConfig}
+                  size={48}
+                  force2D={true}
                 />
-              )}
-              <Text variant="titleLarge">Workout with {partner?.displayName}</Text>
+                {/* Partner's avatar - TODO: Fetch partner's avatarConfig in future enhancement */}
+                <Avatar3DDisplay
+                  muscleGroups={partnerAvatar || defaultMuscleGroups}
+                  avatarConfig={undefined} // Will show default appearance until partner customization data is fetched
+                  size={48}
+                  force2D={true}
+                />
+              </View>
+              <Text variant="titleLarge">Workout with {partner?.displayName || 'Partner'}</Text>
             </View>
           </View>
           <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
@@ -671,18 +721,12 @@ const ActiveSessionScreen = () => {
           visible={showEvolutionModal}
           onDismiss={() => {
             setShowEvolutionModal(false);
+            evolutionShownRef.current = false;
             navigation.navigate('Sessions');
           }}
           previousLevel={evolutionData.previousLevel}
           newLevel={evolutionData.newLevel}
-          muscleGroups={avatarState?.muscleGroups || {
-            chest: 1,
-            back: 1,
-            legs: 1,
-            shoulders: 1,
-            arms: 1,
-            core: 1,
-          }}
+          muscleGroups={avatarState?.muscleGroups || defaultMuscleGroups}
           muscleGroupsGained={evolutionData.muscleGroupsGained}
         />
       )}
@@ -712,6 +756,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
+  },
+  avatarGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   smallAvatar: {
     marginRight: SPACING.xs,

@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import useAuth from '@hooks/useAuth';
 import useAvatar from '@hooks/useAvatar';
-import AvatarDisplay from '@components/avatar/AvatarDisplay';
+import Avatar3DDisplay from '@components/avatar/Avatar3DDisplay';
 import AvatarProgressCard from '@components/avatar/AvatarProgressCard';
 import { SPACING } from '@utils/constants';
 // Define tab navigation type locally since it may not be exported
@@ -35,14 +35,14 @@ const HomeScreen = () => {
         {avatarState && ` (Level ${avatarState.level})`}
       </Text>
       
-      {/* Avatar Display */}
+      {/* Avatar Display with customization and progression - now supports 3D rendering with automatic fallback */}
       {avatarLoading ? (
         <ActivityIndicator size="large" style={styles.avatar} />
       ) : avatarState ? (
-        <AvatarDisplay 
-          muscleGroups={avatarState.muscleGroups} 
-          size={120} 
-          style={styles.avatar}
+        <Avatar3DDisplay 
+          muscleGroups={avatarState.muscleGroups}
+          avatarConfig={user?.avatarConfig}
+          size={120}
         />
       ) : null}
       

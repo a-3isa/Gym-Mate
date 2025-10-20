@@ -17,11 +17,12 @@ export default function useAvatar() {
 
   /**
    * Fetches the latest avatar state from the backend
+   * @returns The fetched AvatarState or null if error/no user
    */
-  const fetchAvatar = useCallback(async () => {
+  const fetchAvatar = useCallback(async (): Promise<AvatarState | null> => {
     if (!user) {
       setAvatarState(null);
-      return;
+      return null;
     }
 
     setLoading(true);
@@ -30,10 +31,12 @@ export default function useAvatar() {
     try {
       const avatar = await getAvatarState();
       setAvatarState(avatar);
+      return avatar;
     } catch (err: any) {
       console.error('Error fetching avatar:', err);
       setError(err.message || 'Failed to load avatar');
       setAvatarState(null);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -42,8 +45,9 @@ export default function useAvatar() {
   /**
    * Refreshes the avatar state
    * Useful after session completion or manual refresh
+   * @returns Promise of the updated AvatarState or null if error
    */
-  const refreshAvatar = useCallback(() => {
+  const refreshAvatar = useCallback((): Promise<AvatarState | null> => {
     return fetchAvatar();
   }, [fetchAvatar]);
 

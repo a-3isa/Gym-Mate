@@ -45,6 +45,11 @@ export interface ExerciseProgress {
   exerciseName: string;
 
   /**
+   * Cached exercise category or primary muscle group for denormalized lookups
+   */
+  category?: string;
+
+  /**
    * Personal record for this exercise
    */
   personalRecord: {
@@ -142,6 +147,11 @@ export interface UserProgress {
    * Longest consecutive days streak
    */
   longestStreak: number;
+
+  /**
+   * Lifetime total volume (weight × reps) across all workouts
+   */
+  lifetimeVolume: number;
 
   /**
    * Timestamp when the progress was last updated

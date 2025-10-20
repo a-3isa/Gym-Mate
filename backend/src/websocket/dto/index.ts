@@ -11,3 +11,4 @@ export * from './session-end.dto';
 export * from './timer-start.dto';
 export * from './timer-sync.dto';
 export * from './timer-stop.dto';
+export * from './avatar-evolution.dto';

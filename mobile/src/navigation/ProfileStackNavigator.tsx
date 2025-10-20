@@ -3,6 +3,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ProfileStackParamList } from './types';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/profile/EditProfileScreen';
+import CustomizeAvatarScreen from '../screens/profile/CustomizeAvatarScreen';
+import Avatar3DSettingsScreen from '../screens/profile/Avatar3DSettingsScreen';
 import FriendListScreen from '../screens/profile/FriendListScreen';
 import AddFriendScreen from '../screens/profile/AddFriendScreen';
 import { useTheme } from 'react-native-paper';
@@ -39,6 +41,23 @@ export default function ProfileStackNavigator() {
         options={{
           title: 'Edit Profile',
           presentation: 'modal',
+        }}
+      />
+      {/** Avatar customization screen with modal presentation for consistent UX */}
+      <Stack.Screen
+        name="CustomizeAvatar"
+        component={CustomizeAvatarScreen}
+        options={{
+          title: 'Customize Avatar',
+          presentation: 'modal',
+        }}
+      />
+      {/** 3D Avatar Settings screen provides 3D rendering configuration and performance monitoring */}
+      <Stack.Screen
+        name="Avatar3DSettings"
+        component={Avatar3DSettingsScreen}
+        options={{
+          title: '3D Avatar Settings',
         }}
       />
       <Stack.Screen

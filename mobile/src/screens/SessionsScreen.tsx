@@ -1,13 +1,25 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Text, FAB, useTheme, Card, Chip, ActivityIndicator, Divider, Button } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { useFocusEffect } from '@react-navigation/native';
 import { SPACING } from '../utils/constants';
 import { getUserSessions } from '../services/api/session.service';
-import { Session, SessionStatus } from '../types/models';
+import { Session, SessionStatus, MuscleGroups } from '../types/models';
 import useAuth from '../hooks/useAuth';
 import { SessionsStackNavigationProp } from '../navigation/types';
+import useAvatar from '../hooks/useAvatar';
+import AvatarDisplay from '../components/avatar/AvatarDisplay';
+import { getPublicUser } from '../services/api/profile.service';
+
+const defaultMuscleGroups: MuscleGroups = {
+  chest: 1,
+  back: 1,
+  legs: 1,
+  shoulders: 1,
+  arms: 1,
+  core: 1,
+};
 
 /**
  * Parses a Firestore timestamp into a Date object
@@ -29,16 +41,22 @@ const parseTimestamp = (timestamp: any): Date => {
 
 /**
  * SessionsScreen - Displays list of workout sessions with status filtering
+ * 
+ * TODO: Implement dedicated workout history section/screen with AvatarDisplay
+ * for each completed session entry using user's avatarMuscleGroups to show
+ * avatar state at time of workout completion.
  */
 const SessionsScreen = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<SessionsStackNavigationProp>();
   const { user } = useAuth();
+  const { avatarState } = useAvatar();
   
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<SessionStatus | null>(null);
+  const [partnerAvatars, setPartnerAvatars] = useState<Record<string, MuscleGroups>>({});
 
   /**
    * Fetches sessions from the backend
@@ -78,6 +96,55 @@ const SessionsScreen = () => {
     setSelectedStatus(status);
   }, []);
 
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadPartnerAvatars = async () => {
+      const partnerIds = sessions
+        .map((session) => session.participants.find((p) => p.uid !== user?.uid)?.uid)
+        .filter((uid): uid is string => Boolean(uid))
+        .filter((uid, index, arr) => arr.indexOf(uid) === index && !partnerAvatars[uid]);
+
+      if (partnerIds.length === 0) {
+        return;
+      }
+
+      try {
+        const results = await Promise.all(
+          partnerIds.map(async (uid) => {
+            try {
+              const publicUser = await getPublicUser(uid);
+              return { uid, muscleGroups: publicUser.avatarMuscleGroups } as const;
+            } catch (error) {
+              console.error('Failed to load partner avatar', error);
+              return { uid, muscleGroups: null as MuscleGroups | null } as const;
+            }
+          }),
+        );
+
+        if (!isCancelled) {
+          setPartnerAvatars((current) => {
+            const updated = { ...current };
+            for (const result of results) {
+              if (result.muscleGroups) {
+                updated[result.uid] = result.muscleGroups;
+              }
+            }
+            return updated;
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load partner avatars', error);
+      }
+    };
+
+    void loadPartnerAvatars();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [sessions, user?.uid, partnerAvatars]);
+
   /**
    * Navigates to session detail or active session
    */
@@ -101,15 +168,28 @@ const SessionsScreen = () => {
       item.status === 'active' ? 'success' :
       item.status === 'pending' ? 'warning' :
       item.status === 'completed' ? 'info' : 'error';
+    const partnerMuscleGroups = partner?.uid ? partnerAvatars[partner.uid] : undefined;
 
     return (
       <TouchableOpacity onPress={() => handleSessionPress(item)}>
         <Card style={styles.sessionCard}>
           <Card.Content>
             <View style={styles.sessionHeader}>
-              <Text variant="titleMedium">
-                {partner?.displayName || 'Unknown'}
-              </Text>
+              <View style={styles.sessionInfoRow}>
+                <AvatarDisplay
+                  muscleGroups={avatarState?.muscleGroups || defaultMuscleGroups}
+                  size={36}
+                  style={styles.sessionAvatar}
+                />
+                <AvatarDisplay
+                  muscleGroups={partnerMuscleGroups || defaultMuscleGroups}
+                  size={36}
+                  style={styles.sessionAvatar}
+                />
+                <Text variant="titleMedium">
+                  {partner?.displayName || 'Unknown'}
+                </Text>
+              </View>
               <Chip compact mode="flat" textStyle={{ fontSize: 12 }}>
                 {item.status}
               </Chip>
@@ -260,6 +340,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: SPACING.xs
+  },
+  sessionInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  sessionAvatar: {
+    marginRight: SPACING.xs / 2,
   },
   listContent: {
     paddingBottom: 80

@@ -24,8 +24,9 @@ import {
   SessionStartDto,
   SessionEndDto,
   ExerciseChangeDto,
+  AvatarEvolutionDto,
 } from './dto';
-import { SOCKET_EVENTS } from '../common/constants';
+import { SOCKET_EVENTS } from '../common/constants/websocket.constants';
 import { AuthService } from '../firebase/services/auth.service';
 import { FirestoreService } from '../firebase/services/firestore.service';
 import { COLLECTIONS } from '../common/constants/firestore.constants';
@@ -691,7 +692,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
   ): void {
     try {
       const roomName = `session:${sessionId}`;
-      const payload = {
+      const payload: AvatarEvolutionDto = {
         sessionId,
         userId,
         previousLevel: evolution.previousLevel,
@@ -699,7 +700,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
         muscleGroupsGained: evolution.muscleGroupsGained,
         timestamp: new Date().toISOString(),
       };
-      this.server.to(roomName).emit('avatar:evolution', payload);
+      this.server.to(roomName).emit(SOCKET_EVENTS.AVATAR_EVOLUTION, payload);
       this.logger.log(
         `Emitted AVATAR_EVOLUTION for user ${userId} in session ${sessionId}: Level ${evolution.previousLevel} → ${evolution.newLevel}`,
       );

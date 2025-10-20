@@ -307,6 +307,7 @@ Exercise data is handled by `exercise.service.ts`:
 - Add to workout button
 - Exercise history tracking
 - Custom exercise creation
+- Avatar display alongside workout history entries (backlog)
 
 ## Session Management
 
@@ -371,7 +372,48 @@ The mobile app features a gamified avatar system that evolves based on your work
 - Refresh capability after workouts
 - Error handling and loading states
 
-### Customization
+### Avatar Customization
+
+The avatar system now supports visual customization separate from progression mechanics. Users can personalize their avatar's appearance while maintaining their workout-based muscle development.
+
+**CustomizeAvatarScreen Features**:
+- **Live Preview**: Real-time preview of customization changes
+- **Body Type Selection**: Choose from slim, athletic, muscular, or heavy builds
+- **Skin Tone Customization**: 7 preset skin tone options from light to dark  
+- **Hair Styling**: 6 hair styles including bald, short, medium, long, curly, buzz cut
+- **Hair Colors**: 6 preset hair color options (black, brown, blonde, red, gray, white)
+- **Clothing Options**: 5 clothing styles (tank top, t-shirt, hoodie, sports bra, compression)
+- **Clothing Colors**: 8 vibrant color options for outfits
+- **Save/Reset**: Save customization or reset to defaults
+
+**Accessing Customization**:
+- Navigate to Profile screen
+- Tap "Customize Avatar" button (between Edit Profile and Friends)
+- Opens modal with live preview and customization options
+- Changes saved to backend and sync across app
+
+**Customization Options**:
+
+*Body Types*:
+- **Slim**: Lean build (0.9x width multiplier)
+- **Athletic**: Balanced proportions (1.0x)
+- **Muscular**: Broad build (1.15x width)
+- **Heavy**: Larger frame (1.25x width)
+
+*Visual Elements*:
+- **Skin Tones**: Preset colors from #FFE0BD (light) to #4A2C2A (dark)
+- **Hair Styles**: Various lengths and textures rendered with SVG
+- **Hair Colors**: Natural color palette with hex values
+- **Clothing Styles**: Different athletic wear options
+- **Clothing Colors**: Bright color palette for personalization
+
+**Integration with Progression**:
+- Customization applied as base layer
+- Muscle group development scales on top
+- Body type affects overall proportions
+- Both systems work together for unique avatars
+
+### Customization (Progression-Based)
 
 **Avatar Appearance**:
 - Muscle groups scale from 50% to 150% of base size
@@ -383,12 +425,17 @@ The mobile app features a gamified avatar system that evolves based on your work
 
 New directories and files for avatar system:
 - `components/avatar/` - Avatar display components
-  - `AvatarDisplay.tsx` - SVG avatar renderer
+  - `AvatarDisplay.tsx` - SVG avatar renderer with customization support
   - `AvatarProgressCard.tsx` - Stats display card
   - `AvatarEvolutionModal.tsx` - Level-up celebration
+- `screens/profile/` - Profile-related screens
+  - `CustomizeAvatarScreen.tsx` - Avatar customization interface
 - `hooks/useAvatar.ts` - Avatar state management hook
-- `services/api/avatar.service.ts` - Avatar API calls
-- `types/models.ts` - Extended with MuscleGroups and AvatarState interfaces
+- `services/api/`
+  - `avatar.service.ts` - Avatar progression API calls
+  - `profile.service.ts` - Extended with updateAvatarConfig for customization
+- `types/models.ts` - Extended with MuscleGroups, AvatarState, and AvatarConfig interfaces
+- `utils/constants.ts` - Extended with avatar customization presets
 
 ### Troubleshooting
 
@@ -410,7 +457,183 @@ New directories and files for avatar system:
 **Stats not updating**:
 - Pull-to-refresh on ProfileScreen to force update
 - Check backend progress tracking is working
+
+**Avatar customization issues**:
+- **Avatar not updating after save**: Check network connection and API response
+- **Colors not displaying correctly**: Verify hex color format (#RRGGBB)
+- **Customization reset after app restart**: Ensure refreshProfile is called after save
+- **Preview not matching saved state**: Clear app cache and reload user profile
 - Verify session completion flow
+
+## 3D Avatar System (Phase 2A)
+
+The app now features an advanced 3D avatar rendering system that enhances the existing 2D SVG avatars with Three.js-powered 3D models, providing a more immersive fitness tracking experience.
+
+### Technology Stack
+
+- **Three.js** via expo-three + expo-gl for WebGL-based 3D rendering
+- **@react-three/fiber** for React Native Three.js integration  
+- **Hybrid Rendering Strategy**: Automatic 3D on capable devices, 2D SVG fallback on low-end devices
+- **Bundle Size Impact**: Adds ~10-15MB with Three.js (vs 50-100MB with Unity alternative)
+
+### Setup Requirements
+
+**Important**: 3D avatar rendering requires a custom Expo development build and will NOT work in Expo Go.
+
+```bash
+# Install dependencies
+npm install
+
+# Create custom dev build
+npx expo prebuild
+
+# Run on Android
+npx expo run:android
+
+# Run on iOS (macOS only)
+npx expo run:ios
+```
+
+### Device Capability Detection
+
+The system automatically detects if a device can handle 3D rendering:
+
+- **iOS**: iPhone 8+ (2017 or newer) are considered capable
+- **Android**: Requires 3GB+ RAM and 1080p+ screen resolution
+- **Caching**: Detection results cached for 7 days to avoid repeated checks
+- **Manual Override**: Users can manually enable/disable in settings
+
+### Performance Monitoring
+
+Real-time performance monitoring ensures smooth experience:
+
+- **FPS Tracking**: Monitors frames per second during 3D rendering
+- **Auto-Downgrade**: Switches to 2D if FPS drops below 25 for 5+ seconds
+- **Performance Metrics**: View current and average FPS in settings
+- **Memory Warnings**: Tracks memory pressure events
+
+### Components
+
+**Avatar3DDisplay** (Hybrid Component):
+- Intelligently chooses between 3D and 2D rendering
+- Handles device capability detection
+- Manages performance monitoring
+- Provides seamless fallback to 2D
+
+**ThreeAvatarView** (3D Renderer):
+- Three.js/WebGL-based 3D avatar rendering
+- Placeholder geometry (box) for Phase 2A
+- Prepared for GLTF model integration in Phase 2B
+- Camera angle control (front/side/three-quarter)
+
+**Avatar3DSettingsScreen** (User Preferences):
+- Manual 3D enable/disable toggle
+- Device capability status display
+- Real-time performance metrics (FPS)
+- Quality settings (placeholder for LOD)
+- Reset to defaults option
+
+**use3DAvatar Hook** (State Management):
+- Centralized 3D avatar state
+- Device capability checking
+- User preference management
+- Easy toggle between 2D/3D
+
+### Performance Optimization
+
+- **Device Capability Caching**: Reduces repeated detection overhead
+- **Automatic Downgrade**: Maintains usability on performance drops
+- **Small Avatar Optimization**: Forces 2D for small avatars (48px) in ActiveSessionScreen
+- **Quality Settings**: Future LOD (Level of Detail) support prepared
+
+### User Controls
+
+Navigate to **Profile → 3D Avatar Settings** to:
+
+- View device 3D capability status
+- Manually enable/disable 3D rendering
+- Monitor real-time performance (FPS)
+- Select quality level (coming in future update)
+- Reset all preferences to defaults
+
+### Migration Path
+
+- **Phase 2A** (Current): Three.js foundation with placeholder 3D models
+- **Phase 2B** (Next): Exercise animation library & model retargeting
+- **Evaluation Point**: Consider Unity migration if animation needs exceed Three.js capabilities
+- **Backward Compatibility**: 2D SVG system remains fully functional
+
+### GLTF Model Requirements (Phase 2B)
+
+Future 3D models should meet these specifications:
+
+**Format & Structure**:
+- GLTF 2.0 or GLB (binary GLTF)
+- Humanoid skeleton with standard bone names
+- 5-10k triangle count for mobile optimization
+
+**Morph Targets**:
+- Blend shapes for muscle groups (chest, back, legs, shoulders, arms, core)
+- Names matching MuscleGroups interface
+
+**Materials**:
+- Named materials for customization (skin, hair, clothing)
+- Max 1024x1024 texture resolution
+- Draco compression recommended
+
+**Model Sources**:
+- Ready Player Me (API-based generation)
+- Mixamo (free rigged characters)
+- Sketchfab (check licenses)
+- Custom modeling (Blender)
+
+### Troubleshooting 3D Issues
+
+**"3D not working in Expo Go"**:
+- 3D requires custom dev build
+- Run `npx expo prebuild` and use `expo run:android/ios`
+
+**"Black screen in 3D view"**:
+- Check WebGL support
+- Verify Three.js dependencies installed
+- Check console for GLTF loading errors
+
+**"Low FPS / Stuttering"**:
+- Check device meets minimum requirements
+- Try manual 2D mode in settings
+- Reduce quality setting (when available)
+- Close other apps to free memory
+
+**"3D not available on my device"**:
+- iOS: Requires iPhone 8 or newer
+- Android: Needs 3GB+ RAM and 1080p+ screen
+- Can still use 2D avatars normally
+
+**"Crashes on Android"**:
+- Check available RAM (Settings → About Phone)
+- Verify GPU compatibility
+- Try clearing app cache
+- Use 2D mode as fallback
+
+### Project Structure Additions
+
+New files for 3D avatar system:
+- `components/avatar/Avatar3DDisplay.tsx` - Hybrid 3D/2D component
+- `components/avatar/ThreeAvatarView.tsx` - Three.js renderer
+- `screens/profile/Avatar3DSettingsScreen.tsx` - 3D preferences UI
+- `hooks/use3DAvatar.ts` - 3D state management
+- `utils/deviceCapability.ts` - Device detection logic
+- `utils/performanceMonitor.ts` - FPS monitoring
+- `assets/models/README.md` - 3D model documentation
+
+Modified files:
+- `ProfileScreen.tsx` - Uses Avatar3DDisplay
+- `HomeScreen.tsx` - Uses Avatar3DDisplay  
+- `ActiveSessionScreen.tsx` - Uses Avatar3DDisplay with force2D
+- `navigation/types.ts` - Added Avatar3DSettings route
+- `navigation/ProfileStackNavigator.tsx` - Added settings screen
+- `utils/constants.ts` - Added AVATAR_3D config object
+- `types/models.ts` - Added Avatar3DConfig interface
 
 ## Real-time WebSocket Synchronization
 

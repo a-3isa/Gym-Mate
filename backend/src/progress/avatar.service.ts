@@ -4,10 +4,11 @@ import { FirestoreService } from '../firebase/services/firestore.service';
 import { ProgressService } from './progress.service';
 import { AvatarState, AvatarEvolution } from '../common/interfaces/avatar.interface';
 import { User } from '../common/interfaces/user.interface';
-import { UserProgress, ExerciseProgress } from '../common/interfaces/progress.interface';
+import { UserProgress } from '../common/interfaces/progress.interface';
 import { Exercise } from '../common/interfaces/exercise.interface';
 import { Session } from '../common/interfaces/session.interface';
 import { COLLECTIONS } from '../common/constants/firestore.constants';
+import { serializeTimestamp } from '../common/utils/serializeSession';
 
 /**
  * Service for managing avatar state and evolution
@@ -32,6 +33,8 @@ import { COLLECTIONS } from '../common/constants/firestore.constants';
 @Injectable()
 export class AvatarService {
   private readonly logger = new Logger(AvatarService.name);
+  private readonly exerciseCache = new Map<string, { data: Exercise; timestamp: number }>();
+  private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
   constructor(
     private readonly firestoreService: FirestoreService,
@@ -64,7 +67,7 @@ export class AvatarService {
           },
           totalWorkouts: 0,
           currentStreak: 0,
-          lastUpdated: Timestamp.now(),
+          lastUpdated: serializeTimestamp(Timestamp.now()),
         };
       }
 
@@ -85,7 +88,7 @@ export class AvatarService {
         muscleGroups,
         totalWorkouts: progress.totalWorkouts || 0,
         currentStreak: progress.currentStreak || 0,
-        lastUpdated: Timestamp.now(),
+        lastUpdated: serializeTimestamp(Timestamp.now()),
       };
     } catch (error) {
       this.logger.error(`Failed to calculate avatar state for user ${userId}`, error);
@@ -212,11 +215,7 @@ export class AvatarService {
     totalXP += recentWorkouts * baseXPPerWorkout * (streakMultiplier - 1);
 
     // Add volume bonus
-    const totalVolume =
-      progress.workoutHistory?.reduce(
-        (sum: number, workout) => sum + (workout.totalVolume || 0),
-        0,
-      ) || 0;
+    const totalVolume = progress.lifetimeVolume || 0;
     const volumeBonus = totalVolume / 1000;
     totalXP += volumeBonus;
 
@@ -287,38 +286,51 @@ export class AvatarService {
       core: 0,
     };
 
-    // Collect unique exercise IDs and batch fetch them
-    const exerciseIds = Object.keys(progress.exerciseProgress);
-    const exerciseData: Record<string, Exercise> = {};
+    // Clean expired cache entries periodically
+    this.cleanExpiredCache();
 
-    // Batch fetch exercises in chunks of 10 (Firestore 'in' query limit)
-    const chunkSize = 10;
-    for (let i = 0; i < exerciseIds.length; i += chunkSize) {
-      const chunk = exerciseIds.slice(i, i + chunkSize);
-
-      try {
-        const snapshot = await this.firestoreService
-          .getCollection(COLLECTIONS.EXERCISES)
-          .where('__name__', 'in', chunk)
-          .get();
-
-        snapshot.forEach((doc) => {
-          exerciseData[doc.id] = doc.data() as Exercise;
-        });
-      } catch (error) {
-        this.logger.warn(`Failed to batch fetch exercises chunk ${i / chunkSize + 1}`, error);
+    // Pre-scan to collect missing exercise IDs that need category resolution
+    const missingIds: string[] = [];
+    for (const [exerciseId, exerciseProgress] of Object.entries(progress.exerciseProgress)) {
+      if (!exerciseProgress.category) {
+        missingIds.push(exerciseId);
       }
     }
 
-    // Process exercise progress with batched data
+    // Resolve categories for missing IDs in parallel
+    const categoryMap = new Map<string, string | null>();
+    if (missingIds.length > 0) {
+      try {
+        const startTime = Date.now();
+        const exercises = await Promise.all(missingIds.map((id) => this.getCachedExercise(id)));
+        const endTime = Date.now();
+        this.logger.log(
+          `Resolved ${missingIds.length} exercise categories in ${endTime - startTime}ms`,
+        );
+
+        missingIds.forEach((id, index) => {
+          categoryMap.set(id, exercises[index]?.category || null);
+        });
+      } catch (error) {
+        this.logger.warn('Failed to batch resolve exercise categories', error);
+        // Fall back to empty map, will use individual lookups
+      }
+    }
+
+    // Process exercise progress with cached data
     for (const [exerciseId, exerciseProgress] of Object.entries(progress.exerciseProgress)) {
       const ep = exerciseProgress;
-      const exercise = exerciseData[exerciseId];
+      const volume = ep.totalVolume || 0;
 
-      if (exercise && exercise.category) {
-        const category = exercise.category;
-        const volume = ep.totalVolume || 0;
+      let category = ep.category;
 
+      if (!category) {
+        // Use parallel-resolved category or fall back to individual lookup
+        category =
+          categoryMap.get(exerciseId) || (await this.getCachedExercise(exerciseId))?.category;
+      }
+
+      if (category) {
         if (category.toLowerCase().includes('cardio')) {
           // Distribute cardio volume across all muscle groups (small fraction)
           const cardioFraction = volume * 0.1; // 10% of cardio volume
@@ -338,7 +350,7 @@ export class AvatarService {
           }
         }
       } else {
-        this.logger.warn(`Exercise data not found for ${exerciseId}`);
+        this.logger.warn(`Exercise category not found for ${exerciseId}`);
       }
     }
 
@@ -350,6 +362,57 @@ export class AvatarService {
     }
 
     return muscleGroups;
+  }
+
+  /**
+   * Gets exercise data from cache or fetches from Firestore
+   * @param exerciseId - Exercise ID
+   * @returns Exercise data or null if not found
+   */
+  private async getCachedExercise(exerciseId: string): Promise<Exercise | null> {
+    const now = Date.now();
+    const cached = this.exerciseCache.get(exerciseId);
+
+    // Return cached data if valid and not expired
+    if (cached && now - cached.timestamp < this.CACHE_TTL_MS) {
+      return cached.data;
+    }
+
+    try {
+      // Fetch from Firestore
+      const doc = await this.firestoreService
+        .getCollection(COLLECTIONS.EXERCISES)
+        .doc(exerciseId)
+        .get();
+
+      if (doc.exists) {
+        const exerciseData = doc.data() as Exercise;
+
+        // Cache the data
+        this.exerciseCache.set(exerciseId, {
+          data: exerciseData,
+          timestamp: now,
+        });
+
+        return exerciseData;
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to fetch exercise ${exerciseId}`, error);
+    }
+
+    return null;
+  }
+
+  /**
+   * Cleans expired entries from the exercise cache
+   */
+  private cleanExpiredCache(): void {
+    const now = Date.now();
+    for (const [key, value] of this.exerciseCache.entries()) {
+      if (now - value.timestamp >= this.CACHE_TTL_MS) {
+        this.exerciseCache.delete(key);
+      }
+    }
   }
 
   /**
@@ -375,7 +438,9 @@ export class AvatarService {
       categoryLower.includes('squat') ||
       categoryLower.includes('quad') ||
       categoryLower.includes('hamstring') ||
-      categoryLower.includes('calf')
+      categoryLower.includes('calf') ||
+      categoryLower.includes('glute') ||
+      categoryLower.includes('hip')
     ) {
       return 'legs';
     }
@@ -398,11 +463,7 @@ export class AvatarService {
     }
 
     // Note: Cardio is now handled in calculateMuscleGroups method
-    if (categoryLower.includes('cardio')) {
-      return 'chest'; // This shouldn't be reached anymore for cardio
-    }
-
-    // Default mapping based on common patterns
-    return 'chest'; // Default fallback
+    // Unknown categories are intentionally ignored to avoid bias in muscle distribution
+    return '';
   }
 }

@@ -42,6 +42,41 @@ export class AuthService {
     return undefined;
   }
 
+  async getPublicUserWithAvatar(uid: string): Promise<{
+    uid: string;
+    displayName: string;
+    photoURL?: string;
+    avatarMuscleGroups: {
+      chest: number;
+      back: number;
+      legs: number;
+      shoulders: number;
+      arms: number;
+      core: number;
+    };
+  } | null> {
+    const user = await this.getUserProfile(uid);
+    if (!user) {
+      return null;
+    }
+
+    const defaultMuscleGroups = {
+      chest: 1,
+      back: 1,
+      legs: 1,
+      shoulders: 1,
+      arms: 1,
+      core: 1,
+    };
+
+    return {
+      uid: user.uid,
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      avatarMuscleGroups: user.avatarMuscleGroups ?? defaultMuscleGroups,
+    };
+  }
+
   /**
    * Gets or creates a user document in Firestore.
    * Called on first authentication to ensure user profile exists.
@@ -217,6 +252,90 @@ export class AuthService {
     } catch (error: unknown) {
       const message = this.getErrorMessage(error);
       this.logger.error(`Failed to update user profile ${uid}: ${message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Updates the user's avatar visual customization configuration.
+   * This method updates only the visual customization fields (avatarConfig)
+   * without affecting progression data (avatarLevel, avatarXP, avatarMuscleGroups).
+   * The method performs a partial update (merge) so only provided fields are changed.
+   *
+   * @param uid - The Firebase user ID
+   * @param avatarConfig - Partial avatar configuration to update
+   * @returns The updated user document with new avatarConfig
+   * @throws Error if user not found or update fails
+   */
+  async updateAvatarConfig(
+    uid: string,
+    avatarConfig: Partial<User['avatarConfig']>,
+  ): Promise<User> {
+    try {
+      // Validate the uid
+      if (!uid) {
+        throw new Error('User ID is required');
+      }
+
+      // Build the dot-notation updates in a separate Record to avoid TypeScript friction
+      const updates: Record<string, unknown> = {};
+
+      // Add avatarConfig fields using dot notation for partial updates
+      if (avatarConfig?.bodyType !== undefined) {
+        updates['avatarConfig.bodyType'] = avatarConfig.bodyType;
+      }
+      if (avatarConfig?.skinTone !== undefined) {
+        updates['avatarConfig.skinTone'] = avatarConfig.skinTone;
+      }
+      if (avatarConfig?.hairStyle !== undefined) {
+        updates['avatarConfig.hairStyle'] = avatarConfig.hairStyle;
+      }
+      if (avatarConfig?.hairColor !== undefined) {
+        updates['avatarConfig.hairColor'] = avatarConfig.hairColor;
+      }
+      if (avatarConfig?.clothingStyle !== undefined) {
+        updates['avatarConfig.clothingStyle'] = avatarConfig.clothingStyle;
+      }
+      if (avatarConfig?.clothingColor !== undefined) {
+        updates['avatarConfig.clothingColor'] = avatarConfig.clothingColor;
+      }
+
+      // Check if there are any fields to update
+      const hasAvatarConfigUpdates = Object.keys(updates).length > 0;
+
+      if (!hasAvatarConfigUpdates) {
+        this.logger.debug(`No valid avatar config fields provided for user ${uid}`);
+        // Return current user data if no updates
+        const userDoc = await this.firestoreService.getDocument<User>(COLLECTIONS.USERS, uid).get();
+        if (!userDoc.exists) {
+          throw new Error('User not found');
+        }
+        return userDoc.data() as User;
+      }
+
+      // Construct the final update data with updatedAt on the root
+      const updateData: UpdateData<User> = {
+        ...updates,
+        updatedAt: FieldValue.serverTimestamp() as unknown as User['updatedAt'],
+      } as UpdateData<User>;
+
+      // Perform the update
+      await this.firestoreService.updateDocument(COLLECTIONS.USERS, uid, updateData);
+
+      this.logger.log(`Updated avatar config for user ${uid}`);
+
+      // Fetch and return the updated user document
+      const updatedDocRef = this.firestoreService.getDocument<User>(COLLECTIONS.USERS, uid);
+      const updatedDocSnap = await updatedDocRef.get();
+
+      if (!updatedDocSnap.exists) {
+        throw new Error('User not found after update');
+      }
+
+      return updatedDocSnap.data() as User;
+    } catch (error: unknown) {
+      const message = this.getErrorMessage(error);
+      this.logger.error(`Failed to update avatar config for user ${uid}: ${message}`);
       throw error;
     }
   }
