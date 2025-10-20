@@ -1,19 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { Platform, View, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { ActivityIndicator } from 'react-native-paper';
 import ThreeAvatarView from './ThreeAvatarView';
 import AvatarDisplay from './AvatarDisplay';
-import { AvatarConfig, MuscleGroups } from '../../types/models';
-import { checkDeviceCapability, get3DPreference } from '../../utils/deviceCapability';
+import ErrorBoundary from '../common/ErrorBoundary';
+import { AvatarConfig, Avatar3DConfig, MuscleGroups } from '../../types/models';
+import {
+  checkDeviceCapability,
+  get3DPreference,
+  add3DPreferenceListener,
+} from '../../utils/deviceCapability';
 import { performanceMonitor } from '../../utils/performanceMonitor';
-import { SPACING } from '../../utils/constants';
+import { AVATAR_3D } from '../../utils/constants';
 
 /**
  * Props for the Avatar3DDisplay component
  */
 interface Avatar3DDisplayProps {
   /** Avatar customization configuration */
-  avatarConfig?: AvatarConfig;
+  avatarConfig?: AvatarConfig | Avatar3DConfig;
   /** Muscle group development levels */
   muscleGroups: MuscleGroups;
   /** Size of the avatar display in pixels */
@@ -47,55 +52,72 @@ const Avatar3DDisplay: React.FC<Avatar3DDisplayProps> = ({
   const [performanceIssue, setPerformanceIssue] = useState<boolean>(false);
   const [renderError, setRenderError] = useState<boolean>(false);
 
-  // Check device capability and user preference on mount
-  useEffect(() => {
-    const checkCapabilityAndPreference = async () => {
-      try {
-        // Skip 3D if forced to 2D
-        if (force2D) {
-          setUse3D(false);
-          setLoading(false);
-          return;
-        }
-
-        // Check device capability
-        const isCapable = await checkDeviceCapability();
-        if (!isCapable) {
-          setUse3D(false);
-          setLoading(false);
-          return;
-        }
-
-        // Check user preference
-        const preference = await get3DPreference();
-        const shouldUse3D = preference !== null ? preference : isCapable;
-        
-        setUse3D(shouldUse3D);
-        if (onRenderModeChange) {
+  const applyRenderMode = useCallback(
+    (shouldUse3D: boolean) => {
+      setUse3D((prev) => {
+        if (prev !== shouldUse3D && onRenderModeChange) {
           onRenderModeChange(shouldUse3D ? '3d' : '2d');
         }
+        return shouldUse3D;
+      });
+    },
+    [onRenderModeChange]
+  );
+
+  const evaluateCapability = useCallback(
+    async (options: { showLoading?: boolean } = {}) => {
+      const { showLoading = false } = options;
+      if (showLoading) {
+        setLoading(true);
+      }
+
+      try {
+        if (force2D) {
+          applyRenderMode(false);
+          return;
+        }
+
+        const [isCapable, preference] = await Promise.all([
+          checkDeviceCapability(),
+          get3DPreference(),
+        ]);
+        const shouldUse3D = preference !== null ? preference : isCapable;
+        applyRenderMode(shouldUse3D);
       } catch (error) {
         console.error('Error checking 3D capability:', error);
-        setUse3D(false);
+        applyRenderMode(false);
       } finally {
         setLoading(false);
       }
-    };
+    },
+    [force2D, applyRenderMode]
+  );
 
-    checkCapabilityAndPreference();
-  }, [force2D, onRenderModeChange]);
+  // Check device capability and user preference on mount and when inputs change
+  useEffect(() => {
+    evaluateCapability({ showLoading: true });
+  }, [evaluateCapability]);
+
+  // Re-run capability check when user preference updates elsewhere
+  useEffect(() => {
+    const unsubscribe = add3DPreferenceListener(() => {
+      evaluateCapability();
+    });
+    return unsubscribe;
+  }, [evaluateCapability]);
 
   // Monitor performance when using 3D
   useEffect(() => {
     if (use3D && !performanceIssue) {
       let consecutiveLowFPS = 0;
+      let performanceCheckInterval: ReturnType<typeof setInterval>;
       
       // Set up performance monitoring
       performanceMonitor.handleLowPerformance(() => {
         consecutiveLowFPS++;
         
         // Auto-downgrade after 5 consecutive low FPS readings
-        if (consecutiveLowFPS >= 5) {
+        if (consecutiveLowFPS >= AVATAR_3D.AUTO_DOWNGRADE_THRESHOLD) {
           console.warn('Auto-downgrading from 3D to 2D due to low performance');
           setPerformanceIssue(true);
           setUse3D(false);
@@ -106,16 +128,24 @@ const Avatar3DDisplay: React.FC<Avatar3DDisplayProps> = ({
         }
       });
       
+      // Check performance periodically and reset counter when performance is acceptable
+      performanceCheckInterval = setInterval(() => {
+        if (performanceMonitor.isPerformanceAcceptable()) {
+          consecutiveLowFPS = 0;
+        }
+      }, AVATAR_3D.PERFORMANCE_CHECK_INTERVAL);
+      
       performanceMonitor.startMonitoring();
 
       // Cleanup
       return () => {
         performanceMonitor.stopMonitoring();
+        clearInterval(performanceCheckInterval);
       };
     }
   }, [use3D, performanceIssue, onRenderModeChange]);
 
-  // Error boundary effect
+  // Error handler for ErrorBoundary
   const handleRenderError = () => {
     console.error('3D rendering error, falling back to 2D');
     setRenderError(true);
@@ -139,20 +169,26 @@ const Avatar3DDisplay: React.FC<Avatar3DDisplayProps> = ({
   const shouldRender3D = use3D && !performanceIssue && !renderError && !force2D;
 
   if (shouldRender3D) {
-    // Wrap in error boundary
-    try {
-      return (
+    // Wrap ThreeAvatarView in ErrorBoundary
+    return (
+      <ErrorBoundary
+        onError={handleRenderError}
+        fallback={
+          <AvatarDisplay
+            avatarConfig={avatarConfig}
+            muscleGroups={muscleGroups}
+            size={size}
+          />
+        }
+      >
         <ThreeAvatarView
           avatarConfig={avatarConfig}
           muscleGroups={muscleGroups}
           size={size}
           cameraAngle="front"
         />
-      );
-    } catch (error) {
-      handleRenderError();
-      // Fall through to 2D renderer
-    }
+      </ErrorBoundary>
+    );
   }
 
   // Fall back to 2D SVG renderer

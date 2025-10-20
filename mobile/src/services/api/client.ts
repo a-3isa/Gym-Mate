@@ -10,7 +10,7 @@ const trimmedBaseUrl = BACKEND_API_URL.replace(/\/+$/, '');
 const baseURL = trimmedBaseUrl.endsWith('/api') ? trimmedBaseUrl : `${trimmedBaseUrl}/api`;
 
 const apiClient = axios.create({
-  baseURL :"http://192.168.0.129:3000/api",
+  baseURL: "http://192.168.1.49:3000/api",
   timeout: 10000,
 });
 
@@ -30,7 +30,7 @@ apiClient.interceptors.request.use(
       try {
         // Get the Firebase ID token
         const token = await auth.currentUser.getIdToken();
-        
+
         // Attach token to Authorization header
         config.headers.Authorization = `Bearer ${token}`;
       } catch (error) {
@@ -38,7 +38,7 @@ apiClient.interceptors.request.use(
         // Continue without token if retrieval fails
       }
     }
-    
+
     return config;
   },
   (error: AxiosError) => Promise.reject(error)
@@ -52,18 +52,18 @@ apiClient.interceptors.response.use(
   (response: AxiosResponse) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config as RequestConfig;
-    
+
     // Handle 401 Unauthorized errors
     if (error.response?.status === 401 && !originalRequest._retry && auth.currentUser) {
       originalRequest._retry = true; // Mark to prevent infinite loop
-      
+
       try {
         // Force refresh the token
         const newToken = await auth.currentUser.getIdToken(true);
-        
+
         // Update the Authorization header with new token
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
-        
+
         // Retry the original request with new token
         return apiClient(originalRequest);
       } catch (refreshError) {
@@ -72,7 +72,7 @@ apiClient.interceptors.response.use(
         return Promise.reject(error);
       }
     }
-    
+
     console.error('API Error:', error);
     return Promise.reject(error);
   }

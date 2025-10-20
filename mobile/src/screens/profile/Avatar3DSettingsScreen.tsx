@@ -43,7 +43,7 @@ const Avatar3DSettingsScreen: React.FC = () => {
 
   // Monitor FPS when 3D is enabled
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval>;
     
     if (is3DEnabled) {
       performanceMonitor.startMonitoring();
@@ -65,18 +65,32 @@ const Avatar3DSettingsScreen: React.FC = () => {
   }, [is3DEnabled]);
 
   const handleToggle3D = async (value: boolean) => {
-    try {
-      await toggle3D(value);
-      
-      if (value && !is3DCapable) {
-        Alert.alert(
-          'Device Not Capable',
-          'Your device does not meet the minimum requirements for 3D rendering. The 2D avatar will be used instead.',
-          [{ text: 'OK' }]
-        );
+    // Show warning dialog when enabling on non-capable devices
+    if (value && !is3DCapable) {
+      Alert.alert(
+        'Device Not Recommended',
+        'Your device does not meet the recommended requirements for 3D rendering. Performance may be poor. Do you want to continue?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Enable Anyway',
+            onPress: async () => {
+              try {
+                await toggle3D(true);
+              } catch (error) {
+                Alert.alert('Error', 'Failed to update 3D preference. Please try again.');
+              }
+            },
+          },
+        ]
+      );
+    } else {
+      // Normal toggle for capable devices or disabling
+      try {
+        await toggle3D(value);
+      } catch (error) {
+        Alert.alert('Error', 'Failed to update 3D preference. Please try again.');
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update 3D preference. Please try again.');
     }
   };
 
@@ -151,7 +165,7 @@ const Avatar3DSettingsScreen: React.FC = () => {
             <Switch
               value={is3DEnabled}
               onValueChange={handleToggle3D}
-              disabled={!is3DCapable || refreshing}
+              disabled={refreshing}
             />
           </View>
           <Text style={styles.helperText}>
@@ -182,6 +196,9 @@ const Avatar3DSettingsScreen: React.FC = () => {
             </View>
             <Text style={styles.helperText}>
               For optimal experience, FPS should stay above 25.
+            </Text>
+            <Text style={styles.helperText}>
+              Current readings reflect overall UI performance. Actual 3D scene FPS may vary during live rendering.
             </Text>
           </Card.Content>
         </Card>

@@ -471,10 +471,34 @@ The app now features an advanced 3D avatar rendering system that enhances the ex
 
 ### Technology Stack
 
-- **Three.js** via expo-three + expo-gl for WebGL-based 3D rendering
-- **@react-three/fiber** for React Native Three.js integration  
+- **Three.js** via @react-three/fiber for WebGL-based 3D rendering
+- **React Three Fiber**: Declarative React bindings for Three.js (no expo-three needed)
+- **expo-gl**: WebGL context for React Native (required by @react-three/fiber)
 - **Hybrid Rendering Strategy**: Automatic 3D on capable devices, 2D SVG fallback on low-end devices
 - **Bundle Size Impact**: Adds ~10-15MB with Three.js (vs 50-100MB with Unity alternative)
+
+### Technology Decision: Three.js over Unity/Unreal
+
+After evaluation, **Three.js** was chosen as the 3D rendering solution for the following reasons:
+
+**Advantages of Three.js**:
+- **Smaller Bundle Size**: 10-15MB vs 50-100MB for Unity integration
+- **Better React Native Integration**: Native React components via @react-three/fiber
+- **Simpler Development**: No need for separate Unity project and bridge
+- **Faster Iteration**: Direct JavaScript/TypeScript development
+- **Sufficient for Requirements**: Handles avatar rendering and basic animations well
+
+**Unity/Unreal Considerations**:
+- Would require `react-native-unity` bridge with significant complexity
+- Larger app size would impact download and storage
+- Overkill for current avatar rendering needs
+- Could be reconsidered if complex physics or animations are needed in future
+
+**Current Implementation**:
+- Three.js provides the 3D rendering foundation
+- GLTF/GLB model support for future avatar models
+- Performance monitoring ensures smooth experience
+- Automatic fallback to 2D maintains broad device support
 
 ### Setup Requirements
 

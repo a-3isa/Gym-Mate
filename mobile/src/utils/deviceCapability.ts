@@ -1,4 +1,4 @@
-import { Platform, Dimensions } from 'react-native';
+import { Platform, Dimensions, PixelRatio } from 'react-native';
 import * as Device from 'expo-device';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -6,9 +6,23 @@ const CAPABILITY_KEY = '@3d_capability';
 const PREFERENCE_KEY = '@3d_preference';
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 
+type PreferenceListener = (enabled: boolean | null) => void;
+const preferenceListeners = new Set<PreferenceListener>();
+
+interface DetectionInputs {
+  platform: string;
+  deviceYearClass?: number;
+  totalMemory?: number;
+  minPixels?: number;
+  hasEnoughRam?: boolean;
+  iosFallbackReason?: string;
+}
+
 interface CapabilityCache {
   capable: boolean;
   timestamp: number;
+  // Store detection inputs for debugging
+  detectionInputs?: DetectionInputs;
 }
 
 /**
@@ -16,7 +30,7 @@ interface CapabilityCache {
  * Uses cached results for 7 days to avoid repeated detection.
  * 
  * Detection heuristics:
- * - iOS: iPhone 8+ (2017 or newer) assumed capable
+ * - iOS: Uses Device.deviceYearClass - devices from 2017+ are considered capable
  * - Android: Requires 3GB+ RAM and 1080p+ screen resolution
  * 
  * @returns Promise<boolean> - true if device is 3D capable
@@ -37,46 +51,50 @@ export async function checkDeviceCapability(): Promise<boolean> {
 
     // Run detection heuristics
     let capable = false;
+    const detectionInputs: DetectionInputs = { platform: Platform.OS };
     
     if (Platform.OS === 'ios') {
-      // Check iOS device year via model name
-      const modelName = Device.modelName || '';
+      // Use Device.deviceYearClass for consistent iOS detection
+      const deviceYearClass = Device.deviceYearClass;
+      if (deviceYearClass != null) {
+        detectionInputs.deviceYearClass = deviceYearClass;
+      }
       
-      // iPhone 8 and newer (2017+) are considered capable
-      // This is a simplified heuristic - all modern iOS devices should handle 3D well
-      const iPhoneMatch = modelName.match(/iPhone (\d+)/);
-      if (iPhoneMatch) {
-        const model = parseInt(iPhoneMatch[1], 10);
-        // iPhone 8 = iPhone10,x, iPhone X = iPhone10,x
-        // Simplified: assume iPhone 8+ (model >= 10) are capable
-        capable = model >= 8;
-      } else if (modelName.includes('iPad')) {
-        // All recent iPads should be capable
-        capable = true;
+      // Devices from 2017 and newer (iPhone 8+) are considered capable
+      if (deviceYearClass) {
+        capable = deviceYearClass >= 2017;
       } else {
-        // Default to capable for unknown iOS devices
-        capable = true;
+        capable = false;
+        detectionInputs.iosFallbackReason = 'deviceYearClass_undefined';
       }
     } else if (Platform.OS === 'android') {
       // Check Android device capabilities
       const totalMemory = Device.totalMemory;
       const { width, height } = Dimensions.get('screen');
-      const screenResolution = Math.min(width, height); // Get smaller dimension
-      
+      const scale = PixelRatio.get();
+      const minPixels = Math.min(width, height) * scale;
+
+      if (typeof totalMemory === 'number') {
+        detectionInputs.totalMemory = totalMemory;
+      }
+      detectionInputs.minPixels = minPixels;
+
       // Require at least 3GB RAM and 1080p resolution
-      const hasEnoughRam = totalMemory ? totalMemory >= 3 * 1024 * 1024 * 1024 : false;
-      const hasGoodScreen = screenResolution >= 1080;
-      
+      const hasEnoughRam = typeof totalMemory === 'number' ? totalMemory >= 3 * 1024 * 1024 * 1024 : false;
+      const hasGoodScreen = minPixels >= 1080;
+      detectionInputs.hasEnoughRam = hasEnoughRam;
+
       capable = hasEnoughRam && hasGoodScreen;
     } else {
       // Unknown platform, default to not capable
       capable = false;
     }
 
-    // Cache the result
+    // Cache the result with detection inputs for debugging
     const cache: CapabilityCache = {
       capable,
       timestamp: Date.now(),
+      detectionInputs,
     };
     await AsyncStorage.setItem(CAPABILITY_KEY, JSON.stringify(cache));
 
@@ -95,6 +113,7 @@ export async function reset3DPreference(): Promise<void> {
   try {
     await AsyncStorage.removeItem(CAPABILITY_KEY);
     await AsyncStorage.removeItem(PREFERENCE_KEY);
+    preferenceListeners.forEach((listener) => listener(null));
   } catch (error) {
     console.error('Error resetting 3D preferences:', error);
   }
@@ -128,7 +147,15 @@ export async function get3DPreference(): Promise<boolean | null> {
 export async function set3DPreference(enabled: boolean): Promise<void> {
   try {
     await AsyncStorage.setItem(PREFERENCE_KEY, JSON.stringify(enabled));
+    preferenceListeners.forEach((listener) => listener(enabled));
   } catch (error) {
     console.error('Error setting 3D preference:', error);
   }
+}
+
+export function add3DPreferenceListener(listener: PreferenceListener): () => void {
+  preferenceListeners.add(listener);
+  return () => {
+    preferenceListeners.delete(listener);
+  };
 }

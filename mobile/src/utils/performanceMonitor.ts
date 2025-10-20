@@ -1,3 +1,5 @@
+const now = () => globalThis.performance?.now?.() ?? Date.now();
+
 /**
  * Performance monitoring utility for 3D rendering.
  * Tracks FPS and can trigger auto-downgrade to 2D when performance drops.
@@ -22,15 +24,16 @@ class PerformanceMonitor {
     }
 
     this.frameCount = 0;
-    this.lastTime = performance.now();
+    this.lastTime = now();
     this.fpsHistory = [];
 
-    const measureFPS = (currentTime: number) => {
+    const measureFPS = (currentTime?: number) => {
+      const timestamp = currentTime ?? now();
       this.frameCount++;
 
       // Calculate FPS every second
-      if (currentTime - this.lastTime >= 1000) {
-        this.fps = Math.round((this.frameCount * 1000) / (currentTime - this.lastTime));
+      if (timestamp - this.lastTime >= 1000) {
+        this.fps = Math.round((this.frameCount * 1000) / (timestamp - this.lastTime));
         
         // Add to history, keep last 10 readings
         this.fpsHistory.push(this.fps);
@@ -45,7 +48,7 @@ class PerformanceMonitor {
 
         // Reset for next measurement
         this.frameCount = 0;
-        this.lastTime = currentTime;
+        this.lastTime = timestamp;
       }
 
       // Continue monitoring

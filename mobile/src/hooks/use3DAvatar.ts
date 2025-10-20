@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import useAuth from './useAuth';
 import useAvatar from './useAvatar';
 import { AvatarConfig, MuscleGroups } from '../types/models';
-import { 
-  checkDeviceCapability, 
+import {
+  checkDeviceCapability,
   get3DPreference,
-  set3DPreference 
+  set3DPreference,
+  add3DPreferenceListener,
 } from '../utils/deviceCapability';
 
 /**
@@ -48,7 +49,7 @@ export const use3DAvatar = () => {
         
         // If user has set a preference, use it; otherwise default to capability
         const enabled = preference !== null ? preference : capable;
-        setIs3DEnabled(enabled && capable); // Can only be enabled if capable
+        setIs3DEnabled(enabled);
       } catch (error) {
         console.error('Error checking 3D capability:', error);
         setIs3DCapable(false);
@@ -59,6 +60,12 @@ export const use3DAvatar = () => {
     };
 
     checkCapability();
+
+    const unsubscribe = add3DPreferenceListener(() => {
+      checkCapability();
+    });
+
+    return unsubscribe;
   }, []);
 
   /**
@@ -67,19 +74,13 @@ export const use3DAvatar = () => {
    */
   const toggle3D = useCallback(async (enable: boolean) => {
     try {
-      // Can't enable if device is not capable
-      if (enable && !is3DCapable) {
-        console.warn('Cannot enable 3D on non-capable device');
-        return;
-      }
-
       // Update preference
       await set3DPreference(enable);
       setIs3DEnabled(enable);
     } catch (error) {
       console.error('Error toggling 3D:', error);
     }
-  }, [is3DCapable]);
+  }, []);
 
   return {
     avatarConfig,

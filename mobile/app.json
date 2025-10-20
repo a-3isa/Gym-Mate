@@ -45,12 +45,11 @@
           "photosPermission": "Allow Gym-Mate to access your photos to upload profile pictures",
           "cameraPermission": "Allow Gym-Mate to take photos for your profile picture"
         }
-      ],
-      "expo-gl"
+      ]
     ],
     "extra": {
       "eas": {
-        "projectId": "00000000-0000-0000-0000-000000000000"
+        "projectId": "93db5b00-2467-4c0d-883b-3e96e917599a"
       }
     }
   }
